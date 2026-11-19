@@ -230,7 +230,7 @@ function reset() {
   ui.hud.classList.remove('hidden');
   ui.overlay.classList.add('hidden');
   updateHud();
-  notice('MISSION START // REACH THE POWER CORES', 3.5);
+  notice('MISSION START', 2);
 }
 function pause() {
   if (state.mode !== 'playing') return;

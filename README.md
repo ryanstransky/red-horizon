@@ -7,14 +7,14 @@ An original 3D first-person alien-invasion game prototype. Explore an occupied E
 In this folder, run:
 
 ```powershell
-python -m http.server 8000
+node server.js
 ```
 
-Open `http://localhost:8000` in a desktop browser. Three.js and fonts currently load from public CDNs, so an internet connection is needed.
+Open `http://127.0.0.1:8000` in a desktop browser. Node.js is required. Three.js and fonts currently load from public CDNs, so an internet connection is needed.
 
 ## Controls
 
-WASD move, mouse aim, left click fire, R reload, Shift sprint, E interact, Esc pause. Click **Begin Mission** to lock the pointer.
+WASD move, mouse aim, left click fire, R reload, Shift sprint, E interact, Esc pause. Click **Begin Mission** to lock the pointer. If your browser does not support mouse lock, move the cursor to aim and click the game to fire.
 
 ## Current scope
 
