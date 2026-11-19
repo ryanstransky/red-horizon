@@ -16,6 +16,8 @@ Open `http://127.0.0.1:8000` in a desktop browser. Node.js is required. Three.js
 
 WASD move, mouse aim, click to fire, hold to fire automatic weapons, R reload, Shift sprint, E interact or pick up, 1–5 switch owned weapons, M mute audio, Esc pause. Click **Begin Mission** to lock the pointer. If your browser does not support mouse lock, move the cursor to aim and click the game to fire.
 
+The relay power core is in the open southwest of the fallen mast. Use **Test Sound** on the start screen to check browser audio; the status confirms whether the browser's audio engine started. If that status says audio is ready but you hear nothing, check your device and browser volume. On a Windows laptop, touchpad palm rejection can pause mouse input briefly after keyboard movement; increasing touchpad sensitivity in Windows settings can help.
+
 ## Current scope
 
 The Earth level includes a clinic, a fallen signal relay, a crash site, abandoned vehicles, signs, ruined buildings, and four types of aliens. After recovering a core, spitters can appear; they glow before firing a projectile that can be dodged. The closest alien uses a rigged model with walk and run animations, smoother turning, and crowd avoidance. Four weapon caches along the route unlock an assault rifle, shotgun, sniper rifle, and minigun; the player starts with a pistol. Each weapon has its own ammo, fire rate, damage, spread, recoil, tracer, model, and synthesized sound. Recovering the third core starts a 120-second rush to the ship. This remains a playable prototype, not a finished game.

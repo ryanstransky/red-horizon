@@ -377,7 +377,8 @@ const shipFlame = new THREE.Mesh(new THREE.ConeGeometry(1.3,5,16),
 shipFlame.rotation.z = Math.PI; shipFlame.position.y = -2; shipFlame.visible = false;
 ship.add(shipFlame);
 
-const coreSites = [[-29, 30], [30, -20], [-25, -58]];
+// Keep the relay core outside the sealed building at x=25..35, z=-24..4.
+const coreSites = [[-29, 30], [20, -28], [-25, -58]];
 let cores = [];
 function makeCore(x, z, label) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
@@ -515,23 +516,38 @@ const state = { mode: 'menu', health: 100, oxygen: 100,
   yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0,
   escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0 };
 // Small synthesized effects keep the prototype self-contained and work after the first click.
+const AUDIO_VOLUME = .4;
 const audio = {context: null, master: null, muted: false, noise: null};
-function initAudio() {
-  if (audio.context) { audio.context.resume(); return; }
+function setAudioStatus(message) {
+  $('audio-status').textContent = message;
+}
+async function initAudio() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass) return;
-  audio.context = new AudioContextClass();
-  audio.master = audio.context.createGain();
-  audio.master.gain.value = audio.muted ? 0 : .18;
-  audio.master.connect(audio.context.destination);
-  const buffer = audio.context.createBuffer(1, audio.context.sampleRate / 2, audio.context.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i=0;i<data.length;i++) data[i] = Math.random() * 2 - 1;
-  audio.noise = buffer;
-  for (const freq of [44, 61]) {
-    const osc = audio.context.createOscillator(), gain = audio.context.createGain();
-    osc.type = 'sine'; osc.frequency.value = freq; gain.gain.value = .032;
-    osc.connect(gain).connect(audio.master); osc.start();
+  if (!AudioContextClass) { setAudioStatus('Audio unavailable in this browser'); return false; }
+  try {
+    if (!audio.context) {
+      audio.context = new AudioContextClass();
+      audio.master = audio.context.createGain();
+      audio.master.gain.value = audio.muted ? 0 : AUDIO_VOLUME;
+      audio.master.connect(audio.context.destination);
+      const buffer = audio.context.createBuffer(1, audio.context.sampleRate / 2, audio.context.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i=0;i<data.length;i++) data[i] = Math.random() * 2 - 1;
+      audio.noise = buffer;
+      for (const freq of [110, 165]) {
+        const osc = audio.context.createOscillator(), gain = audio.context.createGain();
+        osc.type = 'sine'; osc.frequency.value = freq; gain.gain.value = .012;
+        osc.connect(gain).connect(audio.master); osc.start();
+      }
+    }
+    if (audio.context.state !== 'running') await audio.context.resume();
+    const ready = audio.context.state === 'running';
+    setAudioStatus(ready ? (audio.muted ? 'Audio muted — press M in game' : 'Audio ready') : 'Audio blocked by browser');
+    return ready;
+  } catch (error) {
+    setAudioStatus('Audio could not start');
+    console.warn('Audio could not start', error);
+    return false;
   }
 }
 function tone(from, to, duration, volume = .4, shape = 'sawtooth') {
@@ -570,6 +586,7 @@ function sound(kind, weaponId = activeWeapon) {
   else if (kind === 'reload') tone(95,180,.18,.25,'square');
   else if (kind === 'siren') { tone(260,620,.65,.32,'sine'); tone(620,260,.65,.25,'sine'); }
   else if (kind === 'launch') { tone(75,180,1.7,.65); noise(1.6,.35); }
+  else if (kind === 'test') { tone(660,880,.22,.5,'sine'); setTimeout(() => tone(880,1100,.22,.5,'sine'),180); }
 }
 const alienSkin = new THREE.MeshStandardMaterial({
   map: gritTexture([69, 95, 82], 252, 1, 1), roughness: .78,
@@ -781,10 +798,11 @@ function pause() {
   ui.overlay.classList.remove('hidden');
 }
 function resume() {
-  initAudio();
+  const audioReady = initAudio();
   if (state.mode === 'menu' || state.mode === 'dead' || state.mode === 'won') reset();
   else { state.mode = 'playing'; ui.overlay.classList.add('hidden'); }
   requestMouseLock();
+  audioReady.then(ready => { if (ready && state.mode === 'playing') sound('test'); });
 }
 function requestMouseLock() {
   const result = renderer.domElement.requestPointerLock?.();
@@ -1236,6 +1254,12 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 ui.start.addEventListener('click', resume);
+$('audio-test').addEventListener('click', async () => {
+  if (await initAudio()) {
+    sound('test');
+    setAudioStatus(audio.muted ? 'Audio muted — press M in game' : 'Test tone played — check device volume if silent');
+  }
+});
 renderer.domElement.addEventListener('click', () => {
   if (state.mode === 'playing' && document.pointerLockElement !== renderer.domElement) requestMouseLock();
 });
@@ -1268,7 +1292,8 @@ document.addEventListener('keydown', (event) => {
   if (/^Digit[1-5]$/.test(event.code)) selectWeapon(weaponOrder[Number(event.code.slice(-1))-1]);
   if (event.code === 'KeyM') {
     audio.muted = !audio.muted;
-    if (audio.master) audio.master.gain.value = audio.muted ? 0 : .18;
+    if (audio.master) audio.master.gain.value = audio.muted ? 0 : AUDIO_VOLUME;
+    setAudioStatus(audio.muted ? 'Audio muted — press M in game' : 'Audio ready');
     notice(audio.muted ? 'AUDIO MUTED' : 'AUDIO ON',1.2);
   }
 });
