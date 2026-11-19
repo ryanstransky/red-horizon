@@ -268,6 +268,8 @@ for (const [x,z] of [[-31,29],[-27,29]]) {
   block(earth,1.1,.7,.9,x,.35,z,rust);
   sphere(earth,.12,x,.78,z,orangeGlow);
 }
+const clinicAlarm=new THREE.PointLight(0xff4934,0,15);
+clinicAlarm.position.set(-29,2.8,30); earth.add(clinicAlarm);
 // The broken central street leads into two walk-through routes around the block.
 function routeWall(w,h,d,x,z,material=concrete) {
   const wall=block(earth,w,h,d,x,h/2,z,material);
@@ -410,10 +412,16 @@ const beacon = new THREE.PointLight(0xff9b65, 7, 19);
 beacon.position.set(0, 6, -78); earth.add(beacon);
 const shipPad = block(earth, 14, .35, 13, 0, -.05, -78, darkMetal, false);
 shipPad.receiveShadow = true;
+const defenseRing=new THREE.Mesh(new THREE.TorusGeometry(9,.095,8,64),
+  new THREE.MeshBasicMaterial({color:0xff9b65,transparent:true,opacity:.65,depthWrite:false}));
+defenseRing.rotation.x=Math.PI/2; defenseRing.position.set(0,.16,-78);
+defenseRing.visible=false; earth.add(defenseRing);
 const shipFlame = new THREE.Mesh(new THREE.ConeGeometry(1.3,5,16),
   new THREE.MeshBasicMaterial({color:0xff8948,transparent:true,opacity:.8}));
 shipFlame.rotation.z = Math.PI; shipFlame.position.y = -2; shipFlame.visible = false;
 ship.add(shipFlame);
+// Keep the player and aliens outside the launch vehicle's solid hull.
+obstacles.push({x:0,z:-78,w:7,d:7,mesh:ship});
 
 // Keep the relay core outside the sealed building at x=25..35, z=-24..4.
 const coreSites = [[-29, 30], [20, -28], [-25, -58]];
@@ -686,7 +694,9 @@ const aim = new THREE.Vector2(0, 0);
 const state = { mode: 'menu', health: 100, oxygen: 100,
   collected: 0, kills: 0, lastShot: 0, lastSpawn: 0, reloadAt: 0, noticeUntil: 0, fireUntil: 0,
   yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0,
-  escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0 };
+  escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0,
+  clinicAmbushUntil: 0, clinicSecondWaveAt: 0,
+  launchDefense: 'idle', launchCharge: 0, launchWave: 0 };
 // Small synthesized effects keep the prototype self-contained and work after the first click.
 const AUDIO_VOLUME = .4;
 const audio = {context: null, master: null, muted: false, noise: null};
@@ -914,6 +924,64 @@ function spawnAtEdge(type) {
     spawnAlien(x, z, type || (state.collected > 0 && Math.random() < .28 ? 'spitter' : undefined)); return;
   }
 }
+function spawnEncounterAlien(x,z,kind) {
+  if(aliens.filter(a=>!a.dyingAt).length>=12) return;
+  if(canStand(x,z,1)) spawnAlien(x,z,kind);
+  else spawnAtEdge(kind);
+}
+function startClinicAmbush() {
+  const now=performance.now();
+  state.clinicAmbushUntil=now+9500;
+  state.clinicSecondWaveAt=now+4600;
+  for(const [x,z,kind] of [[-20,34,'runner'],[-35,29,'stalker'],[-27,42,'stalker']])
+    spawnEncounterAlien(x,z,kind);
+  sound('siren');
+  notice('CLINIC ALARM // ALIENS AT THE EXITS',3.2);
+}
+const LAUNCH_CHARGE_SECONDS=18;
+function startLaunchDefense() {
+  state.launchDefense='charging';
+  state.launchCharge=0; state.launchWave=1;
+  defenseRing.visible=true;
+  for(const [x,z,kind] of [[-15,-84,'runner'],[14,-88,'stalker']])
+    spawnEncounterAlien(x,z,kind);
+  sound('siren');
+  notice('SHIP POWER-UP // DEFEND THE PAD FOR 18 SECONDS',3.6);
+  updateHud();
+}
+function updateSetPieces(dt,now) {
+  clinicAlarm.intensity=now<state.clinicAmbushUntil
+    ? 3.5+Math.sin(now*.018)*2.5 : 0;
+  if(state.clinicSecondWaveAt && now>=state.clinicSecondWaveAt) {
+    state.clinicSecondWaveAt=0;
+    spawnEncounterAlien(-18,28,'spitter');
+    notice('CLINIC AMBUSH // RANGED ALIEN INBOUND',2.6);
+  }
+  if(state.launchDefense!=='charging') return;
+  const onPad=Math.hypot(camera.position.x,camera.position.z+78)<9;
+  if(onPad) state.launchCharge=Math.min(LAUNCH_CHARGE_SECONDS,state.launchCharge+dt);
+  defenseRing.material.opacity=.48+Math.sin(now*.012)*.18;
+  defenseRing.scale.setScalar(1+Math.sin(now*.008)*.015);
+  if(state.launchWave===1 && state.launchCharge>=6) {
+    state.launchWave=2;
+    spawnEncounterAlien(0,-62,'brute');
+    spawnEncounterAlien(-16,-66,'runner');
+    notice('PAD BREACH // HOLD THE RING',2.4);
+  }
+  if(state.launchWave===2 && state.launchCharge>=12) {
+    state.launchWave=3;
+    spawnEncounterAlien(16,-66,'spitter');
+    spawnEncounterAlien(-14,-88,'stalker');
+    notice('FINAL WAVE // SHIP NEARLY READY',2.5);
+  }
+  if(state.launchCharge>=LAUNCH_CHARGE_SECONDS) {
+    state.launchDefense='ready';
+    defenseRing.material.color.setHex(0x8affca);
+    beacon.color.setHex(0x8affca);
+    sound('pickup');
+    notice('SHIP POWERED // PRESS E AT THE PAD TO BOARD',4);
+  }
+}
 function updateHud() {
   ui.health.textContent = Math.ceil(state.health) + '%';
   ui.healthBar.style.width = state.health + '%';
@@ -928,9 +996,19 @@ function updateHud() {
     (upgrades.optic?' · OPTIC':'')+(upgrades.mags?' · MAGS':'')+
     (upgrades.power?' · POWER':'');
   ui.progress.textContent = state.collected === 3
-    ? `${Math.ceil(state.escapeLeft)}s UNTIL LAUNCH` : state.collected + ' / 3 CORES';
+    ? state.launchDefense==='charging'
+      ? `${Math.ceil(state.launchCharge)} / ${LAUNCH_CHARGE_SECONDS}s CHARGED · ${Math.ceil(state.escapeLeft)}s LEFT`
+      : state.launchDefense==='ready'
+        ? `SHIP READY · ${Math.ceil(state.escapeLeft)}s LEFT`
+        : `${Math.ceil(state.escapeLeft)}s UNTIL LAUNCH`
+    : state.collected + ' / 3 CORES';
   ui.progress.classList.toggle('urgent',state.collected===3);
-  ui.objective.textContent = state.collected === 3 ? 'Reach the escape ship' : 'Recover the power cores';
+  ui.objective.textContent = state.collected === 3
+    ? state.launchDefense==='charging'
+      ? Math.hypot(camera.position.x,camera.position.z+78)<9
+        ? 'Defend the launch pad' : 'Return to the launch ring'
+      : state.launchDefense==='ready' ? 'Board the powered ship' : 'Reach the escape ship'
+    : 'Recover the power cores';
   const next = state.collected === 3
     ? { x: 0, z: -78, label: 'SHIP' }
     : cores.filter(c => !c.collected)
@@ -981,9 +1059,15 @@ function reset() {
   Object.assign(state, { mode: 'playing', health: 100, oxygen: 100,
     collected: 0, kills: 0, lastShot: 0, lastSpawn: performance.now(), reloadAt: 0,
     yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0,
-    escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0 });
+    escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0,
+    clinicAmbushUntil: 0, clinicSecondWaveAt: 0,
+    launchDefense: 'idle', launchCharge: 0, launchWave: 0 });
   ship.position.y = 0;
   shipFlame.visible = false;
+  defenseRing.visible=false; defenseRing.scale.setScalar(1);
+  defenseRing.material.color.setHex(0xff9b65);
+  beacon.color.setHex(0xff9b65);
+  clinicAlarm.intensity=0;
   weapon.visible = true;
   beacon.intensity = 7;
   mars.visible = false; earth.visible = true;
@@ -1150,12 +1234,13 @@ function interact() {
       c.collected = true; c.group.visible = false; state.collected++;
       state.oxygen = Math.min(100, state.oxygen + 22);
       sound('pickup');
+      if(c.label==='CLINIC CORE') startClinicAmbush();
       if (state.collected === 3) {
         state.escapeLeft = 120;
         state.lastSiren = 0;
         notice('ALL CORES SECURED // SHIP LAUNCHES IN 120 SECONDS', 4);
         for (let i=0;i<4;i++) spawnAtEdge(i===0?'brute':i===1?'runner':'stalker');
-      } else {
+      } else if(c.label!=='CLINIC CORE') {
         notice('POWER CORE SECURED // OXYGEN REFILLED', 3);
         spawnAtEdge(state.collected===2?'brute':'runner');
       }
@@ -1187,7 +1272,9 @@ function interact() {
     }
   }
   if (Math.hypot(camera.position.x, camera.position.z + 78) < 6) {
-    if (state.collected === 3) launch();
+    if (state.collected === 3 && state.launchDefense==='idle') startLaunchDefense();
+    else if (state.collected === 3 && state.launchDefense==='ready') launch();
+    else if (state.collected === 3) notice('POWER-UP IN PROGRESS // STAY IN THE RING',1.8);
     else notice('SHIP REQUIRES ' + (3 - state.collected) + ' MORE POWER CORES');
   }
 }
@@ -1196,6 +1283,7 @@ function launch() {
   document.exitPointerLock?.();
   ui.hud.classList.add('hidden');
   weapon.visible = false;
+  defenseRing.visible=false;
   shipFlame.visible = true;
   sound('launch');
   notice('LAUNCH SEQUENCE INITIATED', 3.6);
@@ -1236,7 +1324,8 @@ function arriveMars() {
   notice('MARS COLONY // HUMAN SIGNAL CONFIRMED', 4);
 }
 function updateAliens(dt, now) {
-  if (now - state.lastSpawn > (state.collected === 3 ? 5000 : 8000) && aliens.length < 12) {
+  if (state.launchDefense!=='charging' &&
+    now - state.lastSpawn > (state.collected === 3 ? 5000 : 8000) && aliens.length < 12) {
     spawnAtEdge(); state.lastSpawn = now;
   }
   const detailed = new Set(aliens.filter(a => a.detail && !a.dyingAt)
@@ -1434,7 +1523,10 @@ function updatePrompt() {
     }
   }
   if (!label && Math.hypot(camera.position.x, camera.position.z + 78) < 6)
-    label = state.collected === 3 ? '<b>E</b> BOARD SHIP AND LAUNCH' : 'SHIP NEEDS ' + (3 - state.collected) + ' POWER CORES';
+    label = state.collected !== 3 ? 'SHIP NEEDS ' + (3 - state.collected) + ' POWER CORES'
+      : state.launchDefense==='idle' ? '<b>E</b> START SHIP POWER-UP'
+      : state.launchDefense==='charging' ? `DEFEND PAD · ${Math.ceil(LAUNCH_CHARGE_SECONDS-state.launchCharge)}s TO CHARGE`
+      : '<b>E</b> BOARD SHIP AND LAUNCH';
   ui.prompt.innerHTML = label;
   ui.prompt.classList.toggle('hidden', !label);
 }
@@ -1501,6 +1593,7 @@ function frame(now) {
     updateMovement(dt);
     updateAliens(dt, now);
     updateAlienShots(dt, now);
+    updateSetPieces(dt,now);
     if (firing && weaponSpecs[activeWeapon].auto) shoot();
     for (const pickup of weaponPickups) if (!pickup.collected) {
       pickup.display.rotation.y += dt*.7;
@@ -1512,7 +1605,8 @@ function frame(now) {
     }
     if (state.collected === 3) {
       state.escapeLeft = Math.max(0,state.escapeLeft-dt);
-      beacon.intensity = 7 + Math.sin(now*.012)*4;
+      const nearPad=Math.hypot(camera.position.x,camera.position.z+78)<12;
+      beacon.intensity = nearPad ? .5+Math.sin(now*.012)*.2 : 7+Math.sin(now*.012)*4;
       if (now-state.lastSiren > 3500) { sound('siren'); state.lastSiren=now; }
       if (state.escapeLeft === 0) endGame(false,
         'The launch window closed. The ship departed before you reached the pad.');
