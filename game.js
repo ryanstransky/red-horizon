@@ -10,7 +10,7 @@ const ui = {
 };
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111a1c);
-scene.fog = new THREE.FogExp2(0x263135, 0.021);
+scene.fog = new THREE.FogExp2(0x263135, 0.013);
 const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.07, 200);
 camera.rotation.order = 'YXZ';
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -159,13 +159,14 @@ function rod(parent, start, end, radius, material) {
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.sub(from).normalize());
   mesh.castShadow = true; parent.add(mesh); return mesh;
 }
-const ground = block(earth, 82, .35, 112, 0, -.22, 0, groundMat, false);
+const ground = block(earth, 128, .35, 192, 0, -.22, 0, groundMat, false);
 ground.receiveShadow = true;
 const roadMat = new THREE.MeshStandardMaterial({ map: gritTexture([42, 44, 44], 123, 3, 16), roughness: 1 });
-applySurface(roadMat, 'worn_asphalt', 3, 16);
-const road = block(earth, 9.5, .025, 103, 0, .005, 0, roadMat, false);
+applySurface(roadMat, 'worn_asphalt', 3, 24);
+const road = block(earth, 9.5, .025, 186, 0, .005, 0, roadMat, false);
 road.receiveShadow = true;
-for (let z = -49; z < 51; z += 9) {
+for (const z of [-39, 22]) block(earth, 110, .02, 7, 0, .006, z, roadMat, false);
+for (let z = -88; z < 90; z += 9) {
   const mark = block(earth, .11, .026, 3.2, 0, .025, z, mat(0x777467), false);
   mark.material.transparent = true; mark.material.opacity = .34;
 }
@@ -191,24 +192,93 @@ ruin(-28, 19, 12, 13, 8);
 ruin(29, 27, 10, 15, 9);
 ruin(-9, -4, 7, 9, 5);
 ruin(10, 13, 8, 9, 4);
+for (const [x, z, w, d, h] of [
+  [-35, 61, 15, 18, 13], [37, 63, 14, 19, 10], [-39, 39, 12, 13, 8],
+  [36, 39, 16, 15, 16], [-43, 4, 12, 16, 10], [43, 5, 13, 18, 12],
+  [-39, -43, 17, 16, 15], [40, -49, 15, 17, 11], [-33, -72, 16, 13, 9],
+  [32, -72, 14, 15, 12], [-13, 70, 7, 9, 5], [16, -69, 8, 9, 6]
+]) ruin(x, z, w, d, h);
 for (const [x, z, w, d] of [[-14, 23, 3, 3], [15, 31, 4, 3], [-21, -7, 3, 3], [18, -24, 4, 3], [3, -20, 3, 3]]) {
   const b = block(earth, w, 2, d, x, 1, z, rust);
   obstacles.push({ x, z, w, d, mesh: b });
   block(earth, w - .2, .12, d - .2, x, 2.1, z, darkMetal);
 }
 // The high walls make the mission boundary clear without an invisible edge.
-block(earth, 82, 8, 1, 0, 4, -55, darkMetal);
-block(earth, 82, 8, 1, 0, 4, 55, darkMetal);
-block(earth, 1, 8, 110, -41, 4, 0, darkMetal);
-block(earth, 1, 8, 110, 41, 4, 0, darkMetal);
-for (let i = 0; i < 54; i++) {
-  const x = (i * 31 % 75) - 37, z = (i * 47 % 101) - 50;
-  if (Math.abs(x) < 8 && z > 28) continue;
+block(earth, 128, 8, 1, 0, 4, -96, darkMetal);
+block(earth, 128, 8, 1, 0, 4, 96, darkMetal);
+block(earth, 1, 8, 192, -64, 4, 0, darkMetal);
+block(earth, 1, 8, 192, 64, 4, 0, darkMetal);
+for (let i = 0; i < 110; i++) {
+  const x = (i * 31 % 121) - 60, z = (i * 47 % 181) - 90;
+  if (Math.abs(x) < 7 || Math.hypot(x + 29, z - 30) < 5 ||
+      Math.hypot(x - 30, z + 20) < 5 || Math.hypot(x + 25, z + 58) < 5) continue;
   const debris = new THREE.Mesh(new THREE.DodecahedronGeometry(.24 + (i % 5) * .13, 0), i % 3 ? concrete : rust);
   debris.position.set(x, .06 + (i % 5) * .025, z);
   debris.scale.set(1.35, .36, .8 + (i % 4) * .1);
   debris.rotation.set(i * .4, i * 1.7, i * .17);
   debris.castShadow = false; earth.add(debris);
+}
+// Abandoned vehicles, warnings, and three distinct recovery sites tell the story of the evacuation.
+const tireMat = mat(0x111719, .05, .95), wreckGlass = mat(0x1b3035, .45, .3);
+function wreck(x, z, angle, color) {
+  const car = new THREE.Group(); car.position.set(x, .45, z); car.rotation.y = angle;
+  earth.add(car);
+  const shell = mat(color, .35, .82);
+  block(car, 3.3, .67, 1.8, 0, 0, 0, shell);
+  block(car, 1.65, .55, 1.55, -.2, .58, 0, wreckGlass);
+  block(car, .17, .58, 1.85, 1.62, .02, 0, darkMetal);
+  for (const wx of [-1.05, 1.05]) for (const wz of [-.89, .89]) {
+    const wheel = cylinder(car, .34, .34, .18, wx, -.3, wz, tireMat, 12);
+    wheel.rotation.x = Math.PI / 2;
+  }
+  car.rotation.z = (x < 0 ? -1 : 1) * .045;
+  obstacles.push({x, z, w: 3.7, d: 2.5, mesh: car});
+}
+for (const [x,z,a,c] of [[-10,68,.3,0x4c605d],[12,55,-.4,0x766454],
+  [-11,9,.9,0x544e4b],[11,-5,.2,0x626363],[-12,-30,-.6,0x7b513e],
+  [11,-52,.5,0x3f5556],[-11,-75,1.1,0x65534b]]) wreck(x,z,a,c);
+function sign(label, x, z, direction = 1) {
+  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#243a37'; ctx.fillRect(0,0,512,128);
+  ctx.strokeStyle = '#ca8865'; ctx.lineWidth = 8; ctx.strokeRect(4,4,504,120);
+  ctx.font = 'bold 44px sans-serif'; ctx.fillStyle = '#dce0ce'; ctx.textAlign = 'center';
+  ctx.fillText(label,256,80);
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(5.8,1.45),
+    new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide}));
+  panel.position.set(x,3.1,z); panel.rotation.y = direction * Math.PI/2; earth.add(panel);
+  rod(earth,[x-1.8,0,z],[x-1.8,2.4,z],.08,darkMetal);
+  rod(earth,[x+1.8,0,z],[x+1.8,2.4,z],.08,darkMetal);
+}
+sign('EVACUATION ROUTE',-8,55);
+sign('FIELD HOSPITAL',-20,38);
+sign('SIGNAL STATION',20,-12,-1);
+sign('LAUNCH SITE',-8,-69);
+// A roofless clinic can be entered from the road side to recover the first core.
+for (const [x,z,w,d] of [[-29,27,7,.4],[-32.5,30,.4,6],[-25.5,30,.4,6],
+  [-31.7,33,1.6,.4],[-26.3,33,1.6,.4]]) {
+  const wall = block(earth,w,2.7,d,x,1.35,z,concrete);
+  obstacles.push({x,z,w,d,mesh:wall});
+}
+for (const [x,z] of [[-31,29],[-27,29]]) {
+  block(earth,1.1,.7,.9,x,.35,z,rust);
+  sphere(earth,.12,x,.78,z,orangeGlow);
+}
+// A fallen relay mast points toward the second core.
+rod(earth,[30,0,-25],[36,8,-19],.17,darkMetal);
+rod(earth,[36,8,-19],[38,10,-17],.09,darkMetal);
+for (let i=0;i<4;i++) block(earth,.5,.12,1.2,30+i*1.6,.5+i*1.7,-25+i*1.6,rust);
+const relayLamp = new THREE.PointLight(0xff5d45,4,11);
+relayLamp.position.set(35,7,-20); earth.add(relayLamp);
+// The last core sits beside a crater and a broken transport.
+const crater = new THREE.Mesh(new THREE.TorusGeometry(4.1,.7,8,22),rust);
+crater.rotation.x = Math.PI/2; crater.position.set(-31,.2,-65); earth.add(crater);
+for (let i=0;i<7;i++) {
+  const angle=i*Math.PI*2/7;
+  const shard = new THREE.Mesh(new THREE.ConeGeometry(.45,1.4+i%3*.3,5),darkMetal);
+  shard.position.set(-31+Math.cos(angle)*3.7,.7,-65+Math.sin(angle)*3.7);
+  shard.rotation.z=Math.sin(angle)*.6; earth.add(shard);
 }
 // Layers of blowing ash and low fog move independently of the camera.
 const fogCanvas = document.createElement('canvas');
@@ -221,11 +291,11 @@ gradient.addColorStop(1, 'rgba(139,149,146,0)');
 fogContext.fillStyle = gradient; fogContext.fillRect(0, 0, 128, 128);
 const fogTexture = new THREE.CanvasTexture(fogCanvas);
 const fogBanks = [];
-for (let i = 0; i < 18; i++) {
+for (let i = 0; i < 28; i++) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: fogTexture, color: 0xb0b9b2, transparent: true, opacity: .42, depthWrite: false
   }));
-  sprite.position.set(((i * 67) % 77) - 38, 1.2 + i % 3, ((i * 41) % 103) - 51);
+  sprite.position.set(((i * 67) % 119) - 59, 1.2 + i % 3, ((i * 41) % 181) - 90);
   sprite.scale.set(10 + i % 5 * 3, 3.8 + i % 3, 1);
   earth.add(sprite); fogBanks.push(sprite);
 }
@@ -265,7 +335,7 @@ streakGeometry.setAttribute('position', new THREE.BufferAttribute(streakPosition
 camera.add(new THREE.LineSegments(streakGeometry, new THREE.LineBasicMaterial({
   color: 0xc0ae98, transparent: true, opacity: .17, depthWrite: false
 })));
-for (const [x, z] of [[-6, 30], [6, 11], [-6, -17], [6, -35]]) {
+for (const [x, z] of [[-6, 72], [6, 48], [-6, 30], [6, 11], [-6, -17], [6, -35], [-6, -61], [6, -79]]) {
   rod(earth, [x, 0, z], [x + .45, 7.2, z], .085, darkMetal);
   rod(earth, [x + .45, 7.2, z], [x + (x < 0 ? 1.8 : -1.8), 7.1, z], .055, darkMetal);
   sphere(earth, .15, x + (x < 0 ? 1.8 : -1.8), 7.02, z, orangeGlow);
@@ -285,7 +355,7 @@ for (const [x, z, s] of [[-22, 4, 1], [23, -36, 1.3], [-13, -29, .8], [33, 8, 1.
 }
 // A simple launch vehicle at the north end of the map.
 const ship = new THREE.Group();
-ship.position.set(0, 0, -43);
+ship.position.set(0, 0, -78);
 earth.add(ship);
 cylinder(ship, 2.2, 3.4, 10, 0, 5.5, 0, mat(0xb9c9c7, .6, .4), 12);
 const nose = new THREE.Mesh(new THREE.ConeGeometry(2.2, 4.5, 12), mat(0xdeddd0, .35, .45));
@@ -297,13 +367,17 @@ for (const side of [-1, 1]) {
 block(ship, 1.5, 2.5, .12, 0, 2.4, 2.25, darkMetal);
 block(ship, 1.2, .12, .16, 0, 3.1, 2.35, glowMat, false);
 const beacon = new THREE.PointLight(0xff9b65, 7, 19);
-beacon.position.set(0, 6, -42); earth.add(beacon);
-const shipPad = block(earth, 14, .35, 13, 0, -.05, -43, darkMetal, false);
+beacon.position.set(0, 6, -78); earth.add(beacon);
+const shipPad = block(earth, 14, .35, 13, 0, -.05, -78, darkMetal, false);
 shipPad.receiveShadow = true;
+const shipFlame = new THREE.Mesh(new THREE.ConeGeometry(1.3,5,16),
+  new THREE.MeshBasicMaterial({color:0xff8948,transparent:true,opacity:.8}));
+shipFlame.rotation.z = Math.PI; shipFlame.position.y = -2; shipFlame.visible = false;
+ship.add(shipFlame);
 
-const coreSites = [[-18, 1], [18, -13], [-17, -36]];
+const coreSites = [[-29, 30], [30, -20], [-25, -58]];
 let cores = [];
-function makeCore(x, z) {
+function makeCore(x, z, label) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
   cylinder(g, .95, 1.1, .55, 0, .28, 0, darkMetal);
   const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(.62), glowMat);
@@ -316,7 +390,7 @@ function makeCore(x, z) {
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(.5, .5, 21, 12, 1, true), beamMaterial);
   beam.position.y = 11; g.add(beam);
   earth.add(g);
-  return { x, z, group: g, crystal, ring, collected: false };
+  return { x, z, label, group: g, crystal, ring, collected: false };
 }
 
 // Astronaut gloves and a compact plasma carbine stay in the first-person view.
@@ -349,30 +423,94 @@ const muzzle = new THREE.PointLight(0x59ffe0, 0, 5);
 muzzle.position.set(.03, -.01, -.96); weapon.add(muzzle);
 
 const aliens = [];
+const tracers = [];
 const keys = new Set();
 const raycaster = new THREE.Raycaster();
 const aim = new THREE.Vector2(0, 0);
 const state = { mode: 'menu', health: 100, oxygen: 100, ammo: 30, reserve: 180,
   collected: 0, kills: 0, lastShot: 0, lastSpawn: 0, reloadAt: 0, noticeUntil: 0, fireUntil: 0,
-  yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0 };
+  yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0,
+  escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0 };
+// Small synthesized effects keep the prototype self-contained and work after the first click.
+const audio = {context: null, master: null, muted: false, noise: null};
+function initAudio() {
+  if (audio.context) { audio.context.resume(); return; }
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  audio.context = new AudioContextClass();
+  audio.master = audio.context.createGain();
+  audio.master.gain.value = audio.muted ? 0 : .18;
+  audio.master.connect(audio.context.destination);
+  const buffer = audio.context.createBuffer(1, audio.context.sampleRate / 2, audio.context.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i=0;i<data.length;i++) data[i] = Math.random() * 2 - 1;
+  audio.noise = buffer;
+  for (const freq of [44, 61]) {
+    const osc = audio.context.createOscillator(), gain = audio.context.createGain();
+    osc.type = 'sine'; osc.frequency.value = freq; gain.gain.value = .032;
+    osc.connect(gain).connect(audio.master); osc.start();
+  }
+}
+function tone(from, to, duration, volume = .4, shape = 'sawtooth') {
+  if (!audio.context || audio.muted) return;
+  const t = audio.context.currentTime;
+  const osc = audio.context.createOscillator(), gain = audio.context.createGain();
+  osc.type = shape; osc.frequency.setValueAtTime(from,t);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(20,to),t+duration);
+  gain.gain.setValueAtTime(volume,t);
+  gain.gain.exponentialRampToValueAtTime(.001,t+duration);
+  osc.connect(gain).connect(audio.master); osc.start(t); osc.stop(t+duration+.02);
+}
+function noise(duration, volume = .3) {
+  if (!audio.context || audio.muted) return;
+  const source = audio.context.createBufferSource(), gain = audio.context.createGain();
+  const t = audio.context.currentTime;
+  source.buffer = audio.noise;
+  gain.gain.setValueAtTime(volume,t);
+  gain.gain.exponentialRampToValueAtTime(.001,t+duration);
+  source.connect(gain).connect(audio.master); source.start(t); source.stop(t+duration);
+}
+function sound(kind) {
+  if (kind === 'shot') { tone(520,95,.13,.48); noise(.07,.25); }
+  else if (kind === 'hit') tone(340,150,.09,.24,'square');
+  else if (kind === 'kill') { tone(220,55,.28,.35); noise(.18,.18); }
+  else if (kind === 'damage') { tone(110,42,.35,.8); noise(.2,.25); }
+  else if (kind === 'warning') tone(620,210,.28,.3,'square');
+  else if (kind === 'pickup') { tone(440,880,.3,.3,'sine'); tone(660,1100,.26,.17,'sine'); }
+  else if (kind === 'reload') tone(95,180,.18,.25,'square');
+  else if (kind === 'siren') { tone(260,620,.65,.32,'sine'); tone(620,260,.65,.25,'sine'); }
+  else if (kind === 'launch') { tone(75,180,1.7,.65); noise(1.6,.35); }
+}
 const alienSkin = new THREE.MeshStandardMaterial({
   map: gritTexture([69, 95, 82], 252, 1, 1), roughness: .78,
   emissive: 0x10231b, emissiveIntensity: .13
 });
 const alienShell = mat(0x344d49, .2, .65);
 const alienEyes = mat(0x9ed6c4, .1, .42, 0x40c39e, .75);
+const alienKinds = {
+  stalker: {scale: 1, speed: 2.05, hp: 3, damage: 10, range: 1.7, tint: 0xdde9dc},
+  runner: {scale: .76, speed: 3.35, hp: 2, damage: 7, range: 1.55, tint: 0xb9ffd9},
+  brute: {scale: 1.4, speed: 1.3, hp: 7, damage: 18, range: 2.2, tint: 0xffb4a0},
+};
 let alienTemplate = null;
 function attachDetailedAlien(alien) {
   if (!alienTemplate || alien.detail) return;
   const visual = alienTemplate.clone(true);
+  const materials = [];
   visual.traverse(part => {
     if (part.isMesh) {
       part.userData.alien = alien.group;
       part.castShadow = false;
+      part.material = part.material.clone();
+      part.material.color.multiply(new THREE.Color(alienKinds[alien.kind].tint));
+      materials.push({material: part.material, emissive: part.material.emissive.clone()});
     }
   });
   alien.group.add(visual);
   alien.detail = visual;
+  alien.materials = materials;
+  alien.detailBaseY = visual.position.y;
+  alien.detailBaseZ = visual.position.z;
   visual.visible = false;
 }
 new GLTFLoader().load('./assets/models/alien-grey-light.glb', gltf => {
@@ -387,9 +525,11 @@ new GLTFLoader().load('./assets/models/alien-grey-light.glb', gltf => {
   alienTemplate = visual;
   aliens.forEach(attachDetailedAlien);
 }, undefined, error => console.warn('Detailed alien unavailable; using game model.', error));
-function spawnAlien(x, z) {
+function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() < .45 ? 'runner' : 'stalker') {
+  const profile = alienKinds[kind];
   const group = new THREE.Group();
   group.position.set(x, 0, z);
+  group.scale.setScalar(profile.scale);
   const body = new THREE.Mesh(new THREE.CapsuleGeometry(.38, .66, 7, 14), alienSkin);
   body.position.y = 1.08; body.castShadow = true; group.add(body);
   const chest = sphere(group, .39, 0, 1.31, .17, alienShell);
@@ -420,20 +560,23 @@ function spawnAlien(x, z) {
   }
   group.traverse((part) => { if (part.isMesh) part.userData.alien = group; });
   earth.add(group);
-  const alien = { group, arms, fallbackParts: [...group.children], detail: null, hp: 3,
-    speed: 1.8 + Math.random() * .6, attackAt: 0, phase: Math.random() * 7 };
+  const alien = { group, arms, fallbackParts: [...group.children], detail: null,
+    kind, hp: profile.hp, speed: profile.speed, damage: profile.damage, range: profile.range,
+    attackAt: 0, windupUntil: 0, hitUntil: 0, dyingAt: 0, phase: Math.random() * 7 };
   aliens.push(alien);
   attachDetailedAlien(alien);
 }
 function canStand(x, z, radius = .58) {
-  if (Math.abs(x) > 39 || Math.abs(z) > 53) return false;
+  if (Math.abs(x) > 61 || Math.abs(z) > 93) return false;
   return !obstacles.some(o => Math.abs(x - o.x) < o.w / 2 + radius && Math.abs(z - o.z) < o.d / 2 + radius);
 }
-function spawnAtEdge() {
-  for (let tries = 0; tries < 24; tries++) {
-    const x = (Math.random() - .5) * 72, z = (Math.random() - .5) * 97;
-    if (!canStand(x, z, 1) || Math.hypot(x - camera.position.x, z - camera.position.z) < 19) continue;
-    spawnAlien(x, z); return;
+function spawnAtEdge(type) {
+  for (let tries = 0; tries < 36; tries++) {
+    const angle = Math.random() * Math.PI * 2, distance = 20 + Math.random() * 15;
+    const x = camera.position.x + Math.cos(angle) * distance;
+    const z = camera.position.z + Math.sin(angle) * distance;
+    if (!canStand(x, z, 1)) continue;
+    spawnAlien(x, z, type); return;
   }
 }
 function updateHud() {
@@ -443,11 +586,13 @@ function updateHud() {
   ui.oxygenBar.style.width = state.oxygen + '%';
   ui.ammo.textContent = state.ammo;
   ui.reserve.textContent = state.reserve;
-  ui.progress.textContent = state.collected + ' / 3 CORES';
-  ui.objective.textContent = state.collected === 3 ? 'Board the escape ship' : 'Recover the power cores';
+  ui.progress.textContent = state.collected === 3
+    ? `${Math.ceil(state.escapeLeft)}s UNTIL LAUNCH` : state.collected + ' / 3 CORES';
+  ui.progress.classList.toggle('urgent',state.collected===3);
+  ui.objective.textContent = state.collected === 3 ? 'Reach the escape ship' : 'Recover the power cores';
   const next = state.collected === 3
-    ? { x: 0, z: -43, label: 'SHIP' }
-    : cores.filter(c => !c.collected).map(c => ({ ...c, label: 'CORE' }))
+    ? { x: 0, z: -78, label: 'SHIP' }
+    : cores.filter(c => !c.collected)
       .sort((a, b) => Math.hypot(a.x - camera.position.x, a.z - camera.position.z) -
         Math.hypot(b.x - camera.position.x, b.z - camera.position.z))[0];
   if (next) {
@@ -468,19 +613,28 @@ function reset() {
   for (const a of aliens) earth.remove(a.group);
   aliens.length = 0;
   for (const c of cores) earth.remove(c.group);
-  cores = coreSites.map(([x, z]) => makeCore(x, z));
+  cores = coreSites.map(([x, z],i) => makeCore(x, z,
+    ['CLINIC CORE','RELAY CORE','CRASH CORE'][i]));
   Object.assign(state, { mode: 'playing', health: 100, oxygen: 100, ammo: 30, reserve: 180,
     collected: 0, kills: 0, lastShot: 0, lastSpawn: performance.now(), reloadAt: 0,
-    yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0 });
+    yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0,
+    escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0 });
+  ship.position.y = 0;
+  shipFlame.visible = false;
+  weapon.visible = true;
+  beacon.intensity = 7;
   mars.visible = false; earth.visible = true;
   scene.background.setHex(0x111a1c); scene.fog.color.setHex(0x263135);
-  scene.fog.density = .021;
+  scene.fog.density = .013;
   sun.color.setHex(0xb7a493); sun.intensity = 1.65;
   renderer.toneMappingExposure = 1.04;
-  camera.position.set(0, 1.72, 38);
+  camera.position.set(0, 1.72, 79);
   camera.rotation.set(0, 0, 0);
   keys.clear();
-  for (let i = 0; i < 3; i++) spawnAtEdge();
+  for (let i = 0; i < 3; i++) spawnAtEdge(i === 0 ? 'runner' : 'stalker');
+  spawnAlien(-21,36,'runner');
+  spawnAlien(35,-19,'brute');
+  spawnAlien(-19,-55,'stalker');
   ui.hud.classList.remove('hidden');
   ui.overlay.classList.add('hidden');
   updateHud();
@@ -494,6 +648,7 @@ function pause() {
   ui.overlay.classList.remove('hidden');
 }
 function resume() {
+  initAudio();
   if (state.mode === 'menu' || state.mode === 'dead' || state.mode === 'won') reset();
   else { state.mode = 'playing'; ui.overlay.classList.add('hidden'); }
   requestMouseLock();
@@ -502,7 +657,7 @@ function requestMouseLock() {
   const result = renderer.domElement.requestPointerLock?.();
   if (result?.catch) result.catch(() => {});
 }
-function endGame(win) {
+function endGame(win, reason = '') {
   document.exitPointerLock?.();
   state.mode = win ? 'won' : 'dead';
   ui.hud.classList.add('hidden');
@@ -511,13 +666,14 @@ function endGame(win) {
     ui.copy.textContent = 'The ship reached Mars. Beyond the red dunes, the lights of the last human colony are still on. Your crew made it home.';
     ui.start.innerHTML = 'PLAY AGAIN <span>→</span>';
   } else {
-    ui.copy.textContent = 'Your suit failed before you could escape Earth. The ship is still waiting at the launch site.';
+    ui.copy.textContent = reason || 'Your suit failed before you could escape Earth. The ship is still waiting at the launch site.';
     ui.start.innerHTML = 'TRY AGAIN <span>→</span>';
   }
 }
 function reload() {
   if (state.mode !== 'playing' || state.reloadAt || state.ammo >= 30 || state.reserve <= 0) return;
   state.reloadAt = performance.now() + 1250;
+  sound('reload');
   notice('RELOADING', 1.1);
 }
 function shoot() {
@@ -527,20 +683,31 @@ function shoot() {
   state.lastShot = now;
   state.ammo--;
   state.fireUntil = now + 75;
+  sound('shot');
   muzzle.intensity = 13;
   weapon.position.z = -.53;
   raycaster.setFromCamera(aim, camera);
   raycaster.far = 60;
-  const objects = [...aliens.flatMap(a => a.group.children), ...obstacles.map(o => o.mesh)];
+  const objects = [...aliens.flatMap(a => a.dyingAt ? [] :
+    a.detail?.visible ? [a.detail] : a.fallbackParts.filter(part => part.visible)),
+    ...obstacles.map(o => o.mesh)];
   const hit = raycaster.intersectObjects(objects, true)[0];
+  const start = weapon.localToWorld(new THREE.Vector3(.03,-.01,-.96));
+  const end = hit?.point || camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(55).add(camera.position);
+  const tracer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([start,end]),
+    new THREE.LineBasicMaterial({color:0x7cffe1,transparent:true,opacity:.65,depthWrite:false}));
+  scene.add(tracer); tracers.push({mesh:tracer,until:now+70});
   if (hit?.object.userData.alien) {
     const alien = aliens.find(a => a.group === hit.object.userData.alien);
-    if (alien) {
+    if (alien && !alien.dyingAt) {
       alien.hp -= hit.object.geometry?.type === 'SphereGeometry' ? 2 : 1;
-      alien.group.scale.setScalar(alien.hp > 0 ? 1.08 : 1);
+      alien.hitUntil = now + 170;
+      state.hitUntil = now + 150;
+      $('crosshair').classList.add('hit');
+      sound('hit');
       if (alien.hp <= 0) {
-        earth.remove(alien.group);
-        aliens.splice(aliens.indexOf(alien), 1);
+        alien.dyingAt = now;
+        sound('kill');
         state.kills++;
         if (state.kills % 5 === 0) {
           state.reserve = Math.min(240, state.reserve + 30);
@@ -557,11 +724,20 @@ function interact() {
     if (!c.collected && Math.hypot(camera.position.x - c.x, camera.position.z - c.z) < 3.2) {
       c.collected = true; c.group.visible = false; state.collected++;
       state.oxygen = Math.min(100, state.oxygen + 22);
-      notice('POWER CORE SECURED // OXYGEN REFILLED', 3);
+      sound('pickup');
+      if (state.collected === 3) {
+        state.escapeLeft = 120;
+        state.lastSiren = 0;
+        notice('ALL CORES SECURED // SHIP LAUNCHES IN 120 SECONDS', 4);
+        for (let i=0;i<4;i++) spawnAtEdge(i===0?'brute':i===1?'runner':'stalker');
+      } else {
+        notice('POWER CORE SECURED // OXYGEN REFILLED', 3);
+        spawnAtEdge(state.collected===2?'brute':'runner');
+      }
       updateHud(); return;
     }
   }
-  if (Math.hypot(camera.position.x, camera.position.z + 43) < 6) {
+  if (Math.hypot(camera.position.x, camera.position.z + 78) < 6) {
     if (state.collected === 3) launch();
     else notice('SHIP REQUIRES ' + (3 - state.collected) + ' MORE POWER CORES');
   }
@@ -570,8 +746,12 @@ function launch() {
   state.mode = 'launching';
   document.exitPointerLock?.();
   ui.hud.classList.add('hidden');
-  notice('LAUNCH SEQUENCE INITIATED', 3);
-  state.marsAt = performance.now() + 2400;
+  weapon.visible = false;
+  shipFlame.visible = true;
+  sound('launch');
+  notice('LAUNCH SEQUENCE INITIATED', 3.6);
+  state.launchStart = performance.now();
+  state.marsAt = state.launchStart + 3600;
 }
 function buildMars() {
   const soil = mat(0xa76349);
@@ -607,38 +787,73 @@ function arriveMars() {
   notice('MARS COLONY // HUMAN SIGNAL CONFIRMED', 4);
 }
 function updateAliens(dt, now) {
-  if (now - state.lastSpawn > 7000 && aliens.length < 9) {
+  if (now - state.lastSpawn > (state.collected === 3 ? 5000 : 8000) && aliens.length < 12) {
     spawnAtEdge(); state.lastSpawn = now;
   }
-  const detailed = new Set(aliens.filter(a => a.detail)
+  const detailed = new Set(aliens.filter(a => a.detail && !a.dyingAt)
     .sort((a, b) => a.group.position.distanceToSquared(camera.position) -
       b.group.position.distanceToSquared(camera.position)).slice(0, 2));
-  for (const a of aliens) {
+  for (const a of [...aliens]) {
+    if (a.dyingAt) {
+      const death = Math.min(1,(now-a.dyingAt)/620);
+      a.group.rotation.z = death * Math.PI * .48;
+      a.group.position.y = -death * .8;
+      a.group.scale.setScalar(alienKinds[a.kind].scale * (1-death*.32));
+      if (death >= 1) {
+        earth.remove(a.group);
+        aliens.splice(aliens.indexOf(a),1);
+      }
+      continue;
+    }
     const showDetail = detailed.has(a) && a.group.position.distanceTo(camera.position) < 24;
     if (a.detail) a.detail.visible = showDetail;
     for (const part of a.fallbackParts) part.visible = !showDetail;
     const p = a.group.position;
     const dx = camera.position.x - p.x, dz = camera.position.z - p.z;
     const dist = Math.hypot(dx, dz);
-    if (dist < 38 && dist > 1.25) {
-      const step = Math.min(a.speed * dt, dist - 1.25);
+    if (dist < 48 && dist > a.range*.78 && !a.windupUntil) {
+      const step = Math.min(a.speed * dt, dist - a.range*.78);
       const nx = p.x + dx / dist * step, nz = p.z + dz / dist * step;
       if (canStand(nx, nz, .45)) { p.x = nx; p.z = nz; }
       else if (canStand(nx, p.z, .45)) p.x = nx;
       else if (canStand(p.x, nz, .45)) p.z = nz;
     }
     a.group.lookAt(camera.position.x, 0, camera.position.z);
-    a.group.position.y = Math.sin(now * .004 + a.phase) * .065;
-    a.arms[0].rotation.x = Math.sin(now * .005 + a.phase) * .22;
-    a.arms[1].rotation.x = Math.sin(now * .005 + a.phase + Math.PI) * .22;
-    if (dist < 1.7 && now > a.attackAt && now > state.invulnerableUntil) {
-      a.attackAt = now + 1300;
-      state.health = Math.max(0, state.health - 10);
-      state.invulnerableUntil = now + 400;
-      ui.damage.style.opacity = .85;
-      setTimeout(() => ui.damage.style.opacity = 0, 180);
-      updateHud();
-      if (state.health <= 0) endGame(false);
+    const stride = Math.sin(now * .011 * a.speed + a.phase);
+    a.group.position.y = Math.abs(stride) * .065;
+    a.group.scale.setScalar(alienKinds[a.kind].scale * (now<a.hitUntil?1.1:1));
+    a.arms[0].rotation.x = stride * .34 - (a.windupUntil ? .6 : 0);
+    a.arms[1].rotation.x = -stride * .34 - (a.windupUntil ? .6 : 0);
+    if (a.detail) {
+      a.detail.position.y = a.detailBaseY + Math.abs(stride)*.055;
+      a.detail.position.z = a.detailBaseZ + (a.windupUntil ? .24 : 0);
+      a.detail.rotation.z = stride*.035 + (a.windupUntil ? .12 : 0);
+      for (const {material,emissive} of a.materials) {
+        material.emissive.copy(emissive);
+        if (now < a.hitUntil) material.emissive.setHex(0xff3520);
+        else if (a.windupUntil) material.emissive.setHex(0xff4f18);
+        material.emissiveIntensity = a.windupUntil ? .7 : now<a.hitUntil ? .8 : 1;
+      }
+    }
+    if (dist < a.range && !a.windupUntil && now >= a.attackAt) {
+      a.windupUntil = now + (a.kind==='runner'?350:550);
+      if (dist < 9) sound('warning');
+    }
+    if (a.windupUntil && now >= a.windupUntil) {
+      a.windupUntil = 0;
+      a.attackAt = now + (a.kind==='brute'?1750:1200);
+      if (dist < a.range+.25 && now > state.invulnerableUntil) {
+        state.health = Math.max(0,state.health-a.damage);
+        state.invulnerableUntil = now + 450;
+        ui.damage.style.opacity = .85;
+        setTimeout(() => ui.damage.style.opacity = 0, 180);
+        sound('damage');
+        updateHud();
+        if (state.health <= 0) endGame(false);
+      }
+    } else if (a.windupUntil && dist > a.range+1) {
+      a.windupUntil = 0;
+      a.attackAt = now + 500;
     }
   }
 }
@@ -649,7 +864,7 @@ function updatePrompt() {
       label = '<b>E</b> RECOVER POWER CORE'; break;
     }
   }
-  if (!label && Math.hypot(camera.position.x, camera.position.z + 43) < 6)
+  if (!label && Math.hypot(camera.position.x, camera.position.z + 78) < 6)
     label = state.collected === 3 ? '<b>E</b> BOARD SHIP AND LAUNCH' : 'SHIP NEEDS ' + (3 - state.collected) + ' POWER CORES';
   ui.prompt.innerHTML = label;
   ui.prompt.classList.toggle('hidden', !label);
@@ -703,7 +918,7 @@ function updateAtmosphere(dt, now) {
     const cloud = fogBanks[i];
     cloud.position.x += dt * (.35 + i % 4 * .09);
     cloud.material.rotation = Math.sin(now * .0003 + i) * .03;
-    if (cloud.position.x > 42) cloud.position.x = -42;
+    if (cloud.position.x > 64) cloud.position.x = -64;
   }
 }
 let previous = performance.now();
@@ -716,6 +931,13 @@ function frame(now) {
     state.elapsed += dt;
     updateMovement(dt);
     updateAliens(dt, now);
+    if (state.collected === 3) {
+      state.escapeLeft = Math.max(0,state.escapeLeft-dt);
+      beacon.intensity = 7 + Math.sin(now*.012)*4;
+      if (now-state.lastSiren > 3500) { sound('siren'); state.lastSiren=now; }
+      if (state.escapeLeft === 0) endGame(false,
+        'The launch window closed. The ship departed before you reached the pad.');
+    }
     for (const c of cores) if (!c.collected) {
       c.crystal.rotation.y += dt * 1.4;
       c.ring.rotation.z += dt * .5;
@@ -731,13 +953,27 @@ function frame(now) {
       if (state.health === 0) endGame(false);
     }
     if (now - hudAt > 125) { updateHud(); updatePrompt(); hudAt = now; }
-  } else if (state.mode === 'launching' && now >= state.marsAt) arriveMars();
+  } else if (state.mode === 'launching') {
+    ship.position.y += dt*11;
+    shipFlame.scale.y = .8 + Math.random()*.5;
+    camera.position.y += dt*.35;
+    camera.rotation.x = Math.max(-.45,camera.rotation.x-dt*.12);
+    scene.fog.density = Math.max(.005,scene.fog.density-dt*.003);
+    if (now >= state.marsAt) arriveMars();
+  }
   else if (state.mode === 'arriving') {
     camera.position.z -= dt * 2.2;
     if (now >= state.marsAt) endGame(true);
   }
   if (state.noticeUntil && now >= state.noticeUntil) { ui.notice.classList.add('hidden'); state.noticeUntil = 0; }
   if (now > state.fireUntil) muzzle.intensity = 0;
+  if (state.hitUntil && now > state.hitUntil) {
+    $('crosshair').classList.remove('hit'); state.hitUntil=0;
+  }
+  for (let i=tracers.length-1;i>=0;i--) if (now>tracers[i].until) {
+    const line=tracers[i].mesh; scene.remove(line);
+    line.geometry.dispose(); line.material.dispose(); tracers.splice(i,1);
+  }
   weapon.position.z += (-.62 - weapon.position.z) * Math.min(1, dt * 14);
   renderer.render(scene, camera);
 }
@@ -762,6 +998,11 @@ document.addEventListener('keydown', (event) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
   if (event.code === 'KeyR') reload();
   if (event.code === 'KeyE') interact();
+  if (event.code === 'KeyM') {
+    audio.muted = !audio.muted;
+    if (audio.master) audio.master.gain.value = audio.muted ? 0 : .18;
+    notice(audio.muted ? 'AUDIO MUTED' : 'AUDIO ON',1.2);
+  }
 });
 document.addEventListener('keyup', (event) => keys.delete(event.code));
 document.addEventListener('mousedown', (event) => { if (event.button === 0 && event.target === renderer.domElement) shoot(); });
