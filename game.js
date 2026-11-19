@@ -454,8 +454,12 @@ const weaponPoses = {
 };
 const inventory = Object.fromEntries(weaponOrder.map(id => [id,{owned:id==='pistol',mag:weaponSpecs[id].mag,
   reserve:weaponSpecs[id].reserve}]));
+const upgrades={optic:false,mags:false,power:false};
+const magCapacity=id=>Math.ceil(weaponSpecs[id].mag*(upgrades.mags?1.5:1));
 let activeWeapon = 'pistol';
 let firing = false;
+let aiming = false;
+let aimHeld = false;
 const weapon = new THREE.Group();
 weapon.rotation.set(-.035,.32,-.045);
 weapon.scale.setScalar(.9);
@@ -633,6 +637,42 @@ const weaponPickups = pickupSites.map(site => {
     transparent:true,depthWrite:false}));
   label.position.y=2.05; label.scale.set(3.3,.62,1); group.add(label);
   return {...site,group,display,ring,collected:false};
+});
+const upgradeSites=[
+  {id:'optic',name:'FOCUS OPTIC',x:-49,z:49,color:0x8bddff},
+  {id:'mags',name:'EXTENDED MAGS',x:47,z:25,color:0xffd18b},
+  {id:'power',name:'POWER CELL',x:-51,z:-57,color:0xff8e72},
+];
+const upgradeCaches=upgradeSites.map(site=>{
+  const group=new THREE.Group(); group.position.set(site.x,0,site.z); earth.add(group);
+  cylinder(group,.78,.9,.24,0,.15,0,darkMetal);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(.68,.05,8,28),
+    new THREE.MeshBasicMaterial({color:site.color}));
+  ring.rotation.x=Math.PI/2; ring.position.y=.34; group.add(ring);
+  const display=new THREE.Group(); display.position.y=1.1; group.add(display);
+  if(site.id==='optic') {
+    gunTube(display,.21,.65,0,0,0,gunDark,18);
+    gunRing(display,.22,0,0,-.32,gunSteel,.03);
+    gunTube(display,.17,.035,0,0,-.35,gunLens,18);
+  } else if(site.id==='mags') {
+    for(const x of [-.17,.17]) gunPart(display,.24,.52,.2,x,0,0,gunSteel,.035);
+    gunPart(display,.65,.11,.27,0,.31,0,gunDark,.02);
+  } else {
+    gunPart(display,.5,.48,.4,0,0,0,gunDark,.065);
+    gunTube(display,.12,.5,0,0,0,
+      new THREE.MeshBasicMaterial({color:site.color}),16);
+    for(const y of [-.13,.13]) gunPart(display,.57,.045,.44,0,y,0,gunSteel,.01);
+  }
+  const glow=new THREE.PointLight(site.color,3.5,10); glow.position.y=1.2; group.add(glow);
+  const canvas=document.createElement('canvas'); canvas.width=512; canvas.height=96;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='rgba(4,20,23,.88)'; ctx.fillRect(0,0,512,96);
+  ctx.font='bold 40px sans-serif'; ctx.textAlign='center';
+  ctx.fillStyle='#e6fff6'; ctx.fillText(site.name,256,62);
+  const label=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(canvas),
+    transparent:true,depthWrite:false}));
+  label.position.y=2.08; label.scale.set(1.9,.36,1); group.add(label);
+  return {...site,group,ring,display,collected:false};
 });
 
 const aliens = [];
@@ -883,7 +923,10 @@ function updateHud() {
   ui.reserve.textContent = inventory[activeWeapon].reserve;
   ui.weaponName.textContent = weaponSpecs[activeWeapon].name;
   ui.loadout.textContent = `SLOT ${weaponOrder.indexOf(activeWeapon)+1} · `+
-    `${weaponOrder.filter(id => inventory[id].owned).length}/5 UNLOCKED`;
+    `${weaponOrder.filter(id => inventory[id].owned).length}/5 GUNS · ${magCapacity(activeWeapon)} MAG`;
+  $('upgrade-status').textContent=`FIELD UPGRADES ${Object.values(upgrades).filter(Boolean).length}/3`+
+    (upgrades.optic?' · OPTIC':'')+(upgrades.mags?' · MAGS':'')+
+    (upgrades.power?' · POWER':'');
   ui.progress.textContent = state.collected === 3
     ? `${Math.ceil(state.escapeLeft)}s UNTIL LAUNCH` : state.collected + ' / 3 CORES';
   ui.progress.classList.toggle('urgent',state.collected===3);
@@ -958,8 +1001,13 @@ function reset() {
     inventory[id].mag = weaponSpecs[id].mag;
     inventory[id].reserve = weaponSpecs[id].reserve;
   }
+  for(const id of Object.keys(upgrades)) upgrades[id]=false;
+  aiming=false; aimHeld=false; camera.fov=74; camera.updateProjectionMatrix();
   for (const pickup of weaponPickups) {
     pickup.collected = false; pickup.group.visible = true;
+  }
+  for(const cache of upgradeCaches) {
+    cache.collected=false; cache.group.visible=true;
   }
   activeWeapon = 'pistol';
   selectWeapon('pistol',false);
@@ -975,6 +1023,7 @@ function reset() {
 function pause() {
   if (state.mode !== 'playing') return;
   state.mode = 'paused';
+  aiming=false; aimHeld=false;
   lastPointer = null;
   ui.copy.textContent = 'Mission paused. Return when you are ready.';
   ui.start.innerHTML = 'RESUME MISSION <span>→</span>';
@@ -994,6 +1043,7 @@ function requestMouseLock() {
 function endGame(win, reason = '') {
   document.exitPointerLock?.();
   state.mode = win ? 'won' : 'dead';
+  aiming=false; aimHeld=false;
   ui.hud.classList.add('hidden');
   ui.overlay.classList.remove('hidden');
   if (win) {
@@ -1006,7 +1056,8 @@ function endGame(win, reason = '') {
 }
 function reload() {
   const ammo = inventory[activeWeapon], spec = weaponSpecs[activeWeapon];
-  if (state.mode !== 'playing' || state.reloadAt || ammo.mag >= spec.mag || ammo.reserve <= 0) return;
+  if (state.mode !== 'playing' || state.reloadAt || ammo.mag >= magCapacity(activeWeapon) ||
+    ammo.reserve <= 0) return;
   state.reloadAt = performance.now() + spec.reload;
   state.reloadingWeapon = activeWeapon;
   sound('reload');
@@ -1053,7 +1104,7 @@ function shoot() {
     ...obstacles.map(o => o.mesh)];
   let feedbackRank=0;
   for (let pellet=0; pellet<spec.pellets; pellet++) {
-    const deviation = spec.spread;
+    const deviation = spec.spread*((upgrades.optic && (aiming || aimHeld)) ? .4 : 1);
     aim.set((Math.random()-.5)*deviation*2,(Math.random()-.5)*deviation*2);
     raycaster.setFromCamera(aim,camera);
     raycaster.far=spec.range;
@@ -1072,7 +1123,7 @@ function shoot() {
       const alien=aliens.find(a=>a.group===hit.object.userData.alien);
       if (alien && !alien.dyingAt) {
         const headshot=hit.object.userData.hitZone==='head';
-        alien.hp-=spec.damage*(headshot?1.5:1);
+        alien.hp-=spec.damage*(upgrades.power?1.25:1)*(headshot?1.5:1);
         alien.hitUntil=now+170;
         alien.staggerUntil=now+240;
         alien.staggerSide=Math.random()<.5?-1:1;
@@ -1115,9 +1166,23 @@ function interact() {
     if (!pickup.collected && Math.hypot(camera.position.x-pickup.x,camera.position.z-pickup.z)<3.4) {
       pickup.collected=true; pickup.group.visible=false;
       inventory[pickup.id].owned=true;
+      inventory[pickup.id].mag=magCapacity(pickup.id);
       selectWeapon(pickup.id,false);
       sound('pickup');
       notice(`${weaponSpecs[pickup.id].name} EQUIPPED // USE 1–5 TO SWITCH`,3);
+      updateHud(); return;
+    }
+  }
+  for(const cache of upgradeCaches) {
+    if (!cache.collected && Math.hypot(camera.position.x-cache.x,camera.position.z-cache.z)<3.4) {
+      cache.collected=true; cache.group.visible=false; upgrades[cache.id]=true;
+      if(cache.id==='mags') for(const id of weaponOrder)
+        inventory[id].mag=Math.min(magCapacity(id),inventory[id].mag+
+          Math.ceil(weaponSpecs[id].mag*.5));
+      sound('pickup');
+      notice(cache.id==='optic'?'FOCUS OPTIC INSTALLED // RIGHT MOUSE OR Q TO AIM':
+        cache.id==='mags'?'EXTENDED MAGS INSTALLED // 50% MORE CAPACITY':
+        'POWER CELL INSTALLED // 25% MORE DAMAGE',3.5);
       updateHud(); return;
     }
   }
@@ -1363,6 +1428,11 @@ function updatePrompt() {
       label=`<b>E</b> TAKE ${weaponSpecs[pickup.id].name}`; break;
     }
   }
+  if (!label) for(const cache of upgradeCaches) {
+    if(!cache.collected && Math.hypot(camera.position.x-cache.x,camera.position.z-cache.z)<3.4) {
+      label=`<b>E</b> INSTALL ${cache.name}`; break;
+    }
+  }
   if (!label && Math.hypot(camera.position.x, camera.position.z + 78) < 6)
     label = state.collected === 3 ? '<b>E</b> BOARD SHIP AND LAUNCH' : 'SHIP NEEDS ' + (3 - state.collected) + ' POWER CORES';
   ui.prompt.innerHTML = label;
@@ -1436,6 +1506,10 @@ function frame(now) {
       pickup.display.rotation.y += dt*.7;
       pickup.ring.rotation.z += dt*.5;
     }
+    for(const cache of upgradeCaches) if(!cache.collected) {
+      cache.display.rotation.y+=dt*.8;
+      cache.ring.rotation.z+=dt*.5;
+    }
     if (state.collected === 3) {
       state.escapeLeft = Math.max(0,state.escapeLeft-dt);
       beacon.intensity = 7 + Math.sin(now*.012)*4;
@@ -1451,7 +1525,7 @@ function frame(now) {
     if (state.reloadAt && now >= state.reloadAt) {
       const id=state.reloadingWeapon;
       const ammo=inventory[id], spec=weaponSpecs[id];
-      const amount=Math.min(spec.mag-ammo.mag,ammo.reserve);
+      const amount=Math.min(magCapacity(id)-ammo.mag,ammo.reserve);
       ammo.mag+=amount; ammo.reserve-=amount;
       state.reloadAt=0; state.reloadingWeapon=null; updateHud();
     }
@@ -1475,6 +1549,13 @@ function frame(now) {
   }
   if (state.noticeUntil && now >= state.noticeUntil) { ui.notice.classList.add('hidden'); state.noticeUntil = 0; }
   if (now > state.fireUntil) muzzle.intensity = 0;
+  const targetFov=upgrades.optic&&(aiming||aimHeld)&&state.mode==='playing'
+    ? activeWeapon==='sniper'?27:activeWeapon==='assault'?40:48 : 74;
+  camera.fov+=(targetFov-camera.fov)*Math.min(1,dt*13);
+  camera.updateProjectionMatrix();
+  const targetWeaponX=upgrades.optic&&(aiming||aimHeld)&&state.mode==='playing'
+    ? .16 : weaponPoses[activeWeapon].x;
+  weapon.position.x+=(targetWeaponX-weapon.position.x)*Math.min(1,dt*13);
   minigunSpin += ((activeWeapon==='minigun' && firing ? 18 : 0)-minigunSpin)*Math.min(1,dt*5);
   if (minigunRotor) minigunRotor.rotation.z += minigunSpin*dt;
   if (state.hitUntil && now > state.hitUntil) {
@@ -1519,7 +1600,7 @@ renderer.domElement.addEventListener('click', () => {
 document.addEventListener('pointerlockchange', () => {
   lastPointer = null;
   if (document.pointerLockElement !== renderer.domElement) {
-    keys.clear(); firing=false;
+    keys.clear(); firing=false; aiming=false; aimHeld=false;
     if (state.mode === 'playing') pause();
   }
 });
@@ -1542,6 +1623,8 @@ document.addEventListener('keydown', (event) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
   if (event.code === 'KeyR') reload();
   if (event.code === 'KeyE') interact();
+  if (event.code === 'KeyQ' && !event.repeat && upgrades.optic && state.mode==='playing')
+    aiming=!aiming;
   if (/^Digit[1-5]$/.test(event.code)) selectWeapon(weaponOrder[Number(event.code.slice(-1))-1]);
   if (event.code === 'KeyM') {
     audio.muted = !audio.muted;
@@ -1553,11 +1636,17 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('keyup', (event) => keys.delete(event.code));
 document.addEventListener('mousedown', (event) => {
   if (event.button===0 && event.target===renderer.domElement) { firing=true; shoot(); }
+  if (event.button===2 && event.target===renderer.domElement && upgrades.optic)
+    aimHeld=true;
 });
-document.addEventListener('mouseup', (event) => { if (event.button===0) firing=false; });
-window.addEventListener('blur', () => { keys.clear(); firing=false; if (state.mode==='playing') pause(); });
+document.addEventListener('mouseup', (event) => {
+  if (event.button===0) firing=false;
+  if (event.button===2) aimHeld=false;
+});
+renderer.domElement.addEventListener('contextmenu',event=>event.preventDefault());
+window.addEventListener('blur', () => { keys.clear(); firing=false; aiming=false; aimHeld=false; if (state.mode==='playing') pause(); });
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { keys.clear(); firing=false; if (state.mode==='playing') pause(); }
+  if (document.hidden) { keys.clear(); firing=false; aiming=false; aimHeld=false; if (state.mode==='playing') pause(); }
 });
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
