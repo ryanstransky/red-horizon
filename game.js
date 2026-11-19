@@ -594,6 +594,37 @@ const alienSkin = new THREE.MeshStandardMaterial({
 });
 const alienShell = mat(0x344d49, .2, .65);
 const alienEyes = mat(0x9ed6c4, .1, .42, 0x40c39e, .75);
+// Invisible, stable targets cover the entire silhouette while the visible model animates.
+const hitboxMaterial = new THREE.MeshBasicMaterial({
+  transparent: true, opacity: 0, colorWrite: false, depthWrite: false, side: THREE.DoubleSide
+});
+const hitboxGeometries = {
+  head: new THREE.SphereGeometry(.5, 12, 8),
+  torso: new THREE.CapsuleGeometry(.48, .62, 5, 10),
+  limb: new THREE.CapsuleGeometry(.27, .9, 5, 10),
+  leg: new THREE.CapsuleGeometry(.27, .45, 5, 10),
+};
+function makeAlienHitboxes(group) {
+  const hitboxes = [];
+  for (const [zone, geometry, position, scale, tilt] of [
+    ['head', hitboxGeometries.head, [0, 1.9, .1], [1.12, .9, 1], 0],
+    ['torso', hitboxGeometries.torso, [0, 1.06, .13], [1.12, 1, 1.15], 0],
+    ['arm', hitboxGeometries.limb, [-.57, .98, .3], [1, 1, 1.55], -.2],
+    ['arm', hitboxGeometries.limb, [.57, .98, .3], [1, 1, 1.55], .2],
+    ['leg', hitboxGeometries.leg, [-.25, .38, 0], [1, 1, 1], 0],
+    ['leg', hitboxGeometries.leg, [.25, .38, 0], [1, 1, 1], 0],
+  ]) {
+    const mesh = new THREE.Mesh(geometry, hitboxMaterial);
+    mesh.position.set(...position);
+    mesh.scale.set(...scale);
+    mesh.rotation.z = tilt;
+    mesh.userData.alien = group;
+    mesh.userData.hitZone = zone;
+    group.add(mesh);
+    hitboxes.push(mesh);
+  }
+  return hitboxes;
+}
 const alienKinds = {
   stalker: {scale: 1, speed: 2.05, hp: 3, damage: 10, range: 1.7, tint: 0xdde9dc},
   runner: {scale: .76, speed: 3.35, hp: 2, damage: 7, range: 1.55, tint: 0xb9ffd9},
@@ -676,8 +707,10 @@ function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() <
     group.add(spine);
   }
   group.traverse((part) => { if (part.isMesh) part.userData.alien = group; });
+  const fallbackParts = [...group.children];
+  const hitboxes = makeAlienHitboxes(group);
   earth.add(group);
-  const alien = { group, arms, fallbackParts: [...group.children], detail: null,
+  const alien = { group, arms, fallbackParts, hitboxes, detail: null,
     kind, hp: profile.hp, speed: profile.speed, damage: profile.damage, range: profile.range,
     attackAt: 0, windupUntil: 0, spitAt: 0, hitUntil: 0, dyingAt: 0, phase: Math.random() * 7,
     heading: Math.random()*Math.PI*2, velocity: new THREE.Vector2() };
@@ -840,8 +873,7 @@ function shoot() {
   sound('shot',id);
   muzzle.intensity = id==='shotgun'||id==='sniper'?18:11;
   weapon.position.z = weaponPoses[id].z + (id==='sniper'?.18:id==='shotgun'?.16:id==='minigun'?.06:.09);
-  const objects = [...aliens.flatMap(a => a.dyingAt ? [] :
-    a.detail?.visible ? [a.detail] : a.fallbackParts.filter(part => part.visible)),
+  const objects = [...aliens.flatMap(a => a.dyingAt ? [] : a.hitboxes),
     ...obstacles.map(o => o.mesh)];
   for (let pellet=0; pellet<spec.pellets; pellet++) {
     const deviation = spec.spread;
@@ -865,7 +897,7 @@ function shoot() {
     if (hit?.object.userData.alien) {
       const alien=aliens.find(a=>a.group===hit.object.userData.alien);
       if (alien && !alien.dyingAt) {
-        const headshot=hit.object.geometry?.type==='SphereGeometry';
+        const headshot=hit.object.userData.hitZone==='head';
         alien.hp-=spec.damage*(headshot?1.5:1);
         alien.hitUntil=now+170;
         state.hitUntil=now+150;
