@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -400,77 +401,170 @@ const weaponSpecs = {
   pistol: {name:'PISTOL',mag:12,reserve:72,rate:330,damage:1.25,pellets:1,spread:.004,
     reload:1050,range:55,auto:false,color:0xffd29a,travel:72,tip:-.68},
   assault: {name:'ASSAULT RIFLE',mag:30,reserve:180,rate:125,damage:1.1,pellets:1,spread:.008,
-    reload:1450,range:75,auto:true,color:0x89ffda,travel:45,tip:-1.05},
+    reload:1450,range:75,auto:true,color:0x89ffda,travel:45,tip:-1.28},
   shotgun: {name:'SHOTGUN',mag:6,reserve:42,rate:720,damage:.75,pellets:8,spread:.055,
-    reload:1800,range:28,auto:false,color:0xffa472,travel:38,tip:-.99},
+    reload:1800,range:28,auto:false,color:0xffa472,travel:38,tip:-1.2},
   sniper: {name:'SNIPER RIFLE',mag:5,reserve:35,rate:900,damage:6,pellets:1,spread:0,
-    reload:2050,range:130,auto:false,color:0x8bddff,travel:22,tip:-1.28},
+    reload:2050,range:130,auto:false,color:0x8bddff,travel:22,tip:-1.49},
   minigun: {name:'MINIGUN',mag:120,reserve:360,rate:78,damage:.62,pellets:1,spread:.018,
-    reload:3000,range:65,auto:true,color:0xffc36d,travel:32,tip:-1.04},
+    reload:3000,range:65,auto:true,color:0xffc36d,travel:32,tip:-1.2},
 };
 const weaponOrder = ['pistol','assault','shotgun','sniper','minigun'];
 const weaponPoses = {
-  pistol:{x:.36,y:-.47,z:-.77}, assault:{x:.29,y:-.39,z:-.65},
-  shotgun:{x:.31,y:-.41,z:-.66}, sniper:{x:.34,y:-.43,z:-.72},
-  minigun:{x:.32,y:-.39,z:-.69},
+  pistol:{x:.42,y:-.49,z:-1.02}, assault:{x:.38,y:-.43,z:-1.13},
+  shotgun:{x:.38,y:-.44,z:-1.12}, sniper:{x:.39,y:-.46,z:-1.18},
+  minigun:{x:.4,y:-.45,z:-1.14},
 };
 const inventory = Object.fromEntries(weaponOrder.map(id => [id,{owned:id==='pistol',mag:weaponSpecs[id].mag,
   reserve:weaponSpecs[id].reserve}]));
 let activeWeapon = 'pistol';
 let firing = false;
 const weapon = new THREE.Group();
+weapon.rotation.set(-.035,.32,-.045);
+weapon.scale.setScalar(.9);
 camera.add(weapon); scene.add(camera);
 const suitLight = new THREE.PointLight(0xa9c4bb, 1.75, 11);
 suitLight.position.set(0, -.12, -.35); camera.add(suitLight);
 weapon.position.set(...Object.values(weaponPoses.pistol));
-const suit = mat(0xb7c4bf, .28, .62), glove = mat(0xc5d1c9, .14, .77);
+const suit = mat(0xa6b3ae, .24, .73), glove = mat(0x293a3d, .14, .92);
 const grip = mat(0x18252a, .25, .7);
-const forearm = cylinder(weapon, .17, .18, .47, .28, -.32, .13, suit);
-forearm.rotation.x = .7;
-sphere(weapon, .16, .26, -.17, -.06, glove);
-sphere(weapon, .12, -.12, -.22, -.32, glove);
 const weaponModels = new Map();
 let minigunRotor = null, minigunSpin = 0;
+const gunFinish = new THREE.MeshStandardMaterial({color:0x53636a,metalness:.46,roughness:.38});
+const gunSteel = new THREE.MeshStandardMaterial({color:0x89989a,metalness:.6,roughness:.27});
+const gunDark = new THREE.MeshStandardMaterial({color:0x1d292d,metalness:.32,roughness:.62});
+const gunGrip = new THREE.MeshStandardMaterial({color:0x303b39,metalness:.08,roughness:.92});
+const gunCopper = new THREE.MeshStandardMaterial({color:0xa47b57,metalness:.53,roughness:.43});
+const gunLens = new THREE.MeshStandardMaterial({color:0x245c65,metalness:.34,roughness:.16,
+  emissive:0x145971,emissiveIntensity:.34});
+function gunPart(parent,w,h,d,x,y,z,material=gunFinish,r=.025) {
+  const mesh=new THREE.Mesh(new RoundedBoxGeometry(w,h,d,2,Math.min(r,w*.25,h*.25,d*.25)),material);
+  mesh.position.set(x,y,z); parent.add(mesh); return mesh;
+}
+function gunTube(parent,r,length,x,y,z,material=gunSteel,segments=12) {
+  const mesh=new THREE.Mesh(new THREE.CylinderGeometry(r,r,length,segments),material);
+  mesh.rotation.x=Math.PI/2; mesh.position.set(x,y,z); parent.add(mesh); return mesh;
+}
+function gunRing(parent,r,x,y,z,material=gunSteel,tube=.014) {
+  const mesh=new THREE.Mesh(new THREE.TorusGeometry(r,tube,6,14),material);
+  mesh.position.set(x,y,z); parent.add(mesh); return mesh;
+}
+function gunSights(parent, frontZ, rearZ, height) {
+  gunPart(parent,.07,.065,.035,0,height,frontZ,gunDark,.01);
+  for(const x of [-.065,.065]) gunPart(parent,.035,.06,.055,x,height,rearZ,gunDark,.008);
+  gunPart(parent,.035,.025,.025,0,height+.025,frontZ,gunSteel,.006);
+}
+function gunVentRows(parent,zPositions,x,y) {
+  for(const z of zPositions) {
+    gunPart(parent,.013,.026,.075,x,y,z,gunDark,.004);
+    gunPart(parent,.013,.026,.075,-x,y,z,gunDark,.004);
+  }
+}
+function buildGunHands() {
+  const cuff=mat(0x697978,.27,.73), seam=mat(0x6a817f,.22,.78);
+  const forearm=cylinder(weapon,.115,.135,.33,.33,-.4,.1,suit);
+  forearm.rotation.x=.77;
+  gunPart(weapon,.24,.16,.16,.31,-.28,.02,cuff,.035);
+  gunPart(weapon,.16,.115,.19,.245,-.19,-.075,glove,.034).rotation.z=-.2;
+  for(let i=0;i<3;i++) {
+    const finger=gunPart(weapon,.042,.045,.13,.17+i*.048,-.145,-.16,glove,.015);
+    finger.rotation.x=.35;
+    gunPart(weapon,.034,.01,.07,.17+i*.048,-.12,-.17,seam,.004);
+  }
+  const support=cylinder(weapon,.065,.08,.19,-.15,-.28,-.47,cuff);
+  support.rotation.x=-.45;
+  gunPart(weapon,.18,.12,.19,-.125,-.2,-.53,glove,.035);
+  for(let i=0;i<3;i++) gunPart(weapon,.037,.04,.14,-.17+i*.055,-.135,-.61,glove,.012);
+}
+buildGunHands();
 function buildGunModel(id) {
   const g = new THREE.Group();
-  const metal = mat(id==='shotgun'?0x584943:id==='sniper'?0x435760:id==='minigun'?0x555450:0x25343a,.55,.57);
-  const accent = mat(weaponSpecs[id].color,.2,.5,weaponSpecs[id].color,.12);
-  const long = id==='sniper'?1.13:id==='pistol'?.46:.9;
-  block(g,id==='minigun'?.4:.29,.18,long*.64,0,-.04,-.37,metal);
-  block(g,.11,.26,.16,.04,-.25,-.2,grip);
+  const accent=new THREE.MeshStandardMaterial({color:weaponSpecs[id].color,metalness:.32,roughness:.35,
+    emissive:weaponSpecs[id].color,emissiveIntensity:.22});
   if (id==='pistol') {
-    block(g,.235,.075,.34,0,.045,-.36,metal);
-    block(g,.13,.018,.2,0,.092,-.36,suit,false);
-    rod(g,[0,-.035,-.53],[0,-.035,-.68],.043,grip);
+    gunPart(g,.27,.145,.48,0,.015,-.35,gunFinish,.035);
+    gunPart(g,.245,.065,.46,0,.1,-.36,gunSteel,.02);
+    gunPart(g,.19,.037,.19,0,.103,-.34,gunDark,.008);
+    gunPart(g,.15,.035,.11,0,.105,-.34,gunCopper,.005);
+    const handle=gunPart(g,.185,.32,.155,.015,-.205,-.16,gunGrip,.028);
+    handle.rotation.x=-.22;
+    for(let i=0;i<5;i++) gunPart(g,.012,.012,.13,.112,-.29+i*.052,-.16,gunDark,.004);
+    gunPart(g,.105,.09,.1,0,-.12,-.37,gunDark,.02);
+    gunTube(g,.055,.23,0,.01,-.565,gunDark);
+    gunRing(g,.052,0,.01,-.68,gunSteel,.012);
+    gunPart(g,.16,.065,.04,0,-.02,-.175,accent,.012);
+    gunSights(g,-.555,-.16,.17);
+    gunPart(g,.16,.015,.07,0,-.14,-.25,gunSteel,.004);
+  } else if (id==='assault') {
+    gunPart(g,.32,.21,.48,0,0,-.36,gunFinish,.038);
+    gunPart(g,.26,.13,.51,0,.015,-.73,gunDark,.025);
+    gunTube(g,.055,.65,0,.015,-.89,gunSteel);
+    gunTube(g,.08,.12,0,.015,-1.21,gunDark);
+    gunRing(g,.067,0,.015,-1.28,gunSteel);
+    gunPart(g,.32,.11,.29,0,-.015,-.04,gunGrip,.025);
+    gunPart(g,.095,.28,.14,.015,-.235,-.22,gunGrip,.018).rotation.x=-.2;
+    gunPart(g,.15,.29,.16,0,-.27,-.51,gunSteel,.018).rotation.x=.18;
+    gunPart(g,.2,.035,.51,0,.14,-.52,gunSteel,.009);
+    gunPart(g,.105,.08,.13,0,.215,-.43,gunDark,.015);
+    gunPart(g,.048,.055,.025,0,.224,-.497,gunLens,.01);
+    gunVentRows(g,[-.57,-.68,-.79,-.9],.13,.035);
+    for(const z of [-.27,-.33,-.39]) gunPart(g,.016,.027,.037,.165,-.015,z,gunCopper,.004);
+    gunPart(g,.21,.018,.36,0,-.095,-.73,accent,.006);
   } else if (id==='shotgun') {
-    for (const x of [-.075,.075]) rod(g,[x,-.04,-.49],[x,-.04,-1],.045,grip);
-    block(g,.3,.14,.31,0,-.13,-.68,rust);
-    block(g,.24,.13,.22,0,.08,-.32,metal);
+    gunPart(g,.28,.18,.37,0,0,-.34,gunFinish,.035);
+    gunPart(g,.24,.14,.31,0,-.025,-.66,gunCopper,.03);
+    gunPart(g,.27,.13,.31,0,-.035,-.05,gunGrip,.03);
+    gunPart(g,.12,.24,.14,.005,-.22,-.23,gunGrip,.025).rotation.x=-.18;
+    gunTube(g,.065,.7,0,.055,-.85,gunSteel);
+    gunTube(g,.046,.62,0,-.075,-.79,gunDark);
+    gunRing(g,.065,0,.055,-1.2,gunDark,.012);
+    gunPart(g,.22,.035,.48,0,.13,-.77,gunDark,.01);
+    for(let z=-.57;z>-.83;z-=.065) gunPart(g,.245,.014,.012,0,-.115,z,gunDark,.003);
+    for(let z=-.32;z>-.51;z-=.06) gunPart(g,.014,.045,.023,.145,.02,z,accent,.004);
+    gunSights(g,-1.17,-.35,.17);
   } else if (id==='sniper') {
-    rod(g,[0,-.04,-.55],[0,-.04,-1.28],.044,grip);
-    const scope = cylinder(g,.085,.085,.53,0,.17,-.45,grip,12);
-    scope.rotation.x = Math.PI/2;
-    block(g,.16,.24,.2,0,-.25,-.45,metal);
-    rod(g,[-.08,-.12,-.92],[-.23,-.31,-1.02],.025,metal);
-    rod(g,[.08,-.12,-.92],[.23,-.31,-1.02],.025,metal);
+    gunPart(g,.29,.18,.45,0,-.015,-.38,gunFinish,.035);
+    gunPart(g,.2,.12,.31,0,-.03,-.055,gunGrip,.03);
+    gunPart(g,.105,.25,.13,.015,-.23,-.22,gunGrip,.02).rotation.x=-.2;
+    gunPart(g,.16,.22,.14,0,-.24,-.49,gunSteel,.025).rotation.x=.12;
+    gunTube(g,.044,.94,0,.005,-.97,gunSteel);
+    gunTube(g,.075,.14,0,.005,-1.42,gunDark);
+    for(const z of [-1.39,-1.44]) gunRing(g,.072,0,.005,z,gunSteel,.01);
+    gunPart(g,.18,.05,.42,0,.11,-.42,gunDark,.012);
+    gunTube(g,.105,.49,0,.255,-.47,gunDark,16);
+    gunRing(g,.105,0,.255,-.715,gunSteel,.012);
+    gunRing(g,.087,0,.255,-.225,gunSteel,.012);
+    gunTube(g,.082,.012,0,.255,-.724,gunLens,16);
+    for(const z of [-.32,-.58]) gunPart(g,.06,.08,.035,0,.16,z,gunSteel,.012);
+    rod(g,[-.07,-.08,-1.03],[-.23,-.33,-1.15],.018,gunDark);
+    rod(g,[.07,-.08,-1.03],[.23,-.33,-1.15],.018,gunDark);
+    gunPart(g,.17,.025,.25,0,-.11,-.88,accent,.006);
+    const bolt=sphere(g,.035,.18,.045,-.33,gunSteel,10);
+    rod(g,[.1,.04,-.33],[.18,.045,-.33],.017,gunSteel);
   } else if (id==='minigun') {
+    gunPart(g,.46,.36,.4,0,-.02,-.34,gunFinish,.06);
+    gunPart(g,.36,.25,.25,0,-.03,-.06,gunGrip,.05);
+    gunPart(g,.15,.28,.16,.29,-.08,-.33,gunDark,.025);
+    gunTube(g,.16,.3,.27,-.08,-.33,gunSteel,16);
+    gunPart(g,.15,.07,.25,0,.19,-.26,gunDark,.015);
+    gunPart(g,.22,.05,.15,0,.25,-.21,gunSteel,.012);
+    gunPart(g,.16,.24,.14,.02,-.28,-.2,gunGrip,.025);
     const rotor = new THREE.Group(); g.add(rotor); minigunRotor=rotor;
     for (let i=0;i<6;i++) {
-      const a=i*Math.PI/3, x=Math.cos(a)*.115, y=Math.sin(a)*.115-.035;
-      rod(rotor,[x,y,-.48],[x,y,-1.04],.034,grip);
+      const a=i*Math.PI/3, x=Math.cos(a)*.145, y=Math.sin(a)*.145-.035;
+      gunTube(rotor,.032,.68,x,y,-.86,gunSteel,10);
+      gunRing(rotor,.034,x,y,-1.2,gunDark,.007);
     }
-    for (const z of [-.55,-.85]) {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(.18,.026,8,18),metal);
-      ring.position.set(0,-.035,z); rotor.add(ring);
+    for (const z of [-.6,-1.06]) {
+      gunTube(rotor,.195,.055,0,-.035,z,gunDark,16);
+      gunRing(rotor,.2,0,-.035,z,gunCopper,.014);
     }
-    cylinder(g,.24,.24,.26,.25,-.17,-.35,metal,16).rotation.z=Math.PI/2;
+    for(let i=0;i<5;i++) gunPart(g,.025,.035,.065,-.23,-.16,-.2-i*.055,gunCopper,.005);
+    gunPart(g,.4,.035,.18,0,.12,-.5,accent,.008);
   } else {
-    rod(g,[0,-.04,-.55],[0,-.04,-1.05],.053,grip);
-    block(g,.25,.1,.4,0,.075,-.46,accent);
-    block(g,.13,.3,.15,0,-.27,-.48,metal);
-    block(g,.19,.11,.18,0,.19,-.4,grip);
+    gunPart(g,.28,.17,.44,0,0,-.34,gunFinish,.035);
   }
-  block(g,.08,.025,.18,0,.085,-.34,accent,false);
+  gunPart(g,.08,.025,.15,0,.105,-.34,accent,.007);
   return g;
 }
 for (const id of weaponOrder) {
