@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Red Horizon — Escape Earth</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="game"></div>
+  <div id="hud" class="hidden">
+    <div class="helmet"></div>
+    <div id="damage-flash"></div>
+    <div class="hud-top">
+      <div class="brand">RED <span>HORIZON</span><small>MISSION // EXODUS</small></div>
+      <div class="objective"><small>OBJECTIVE</small><strong id="objective">Recover the power cores</strong><span id="progress">0 / 3 CORES</span><em id="guidance">FOLLOW THE BLUE BEACONS</em></div>
+      <div class="signal">SUIT LINK <b>ACTIVE</b></div>
+    </div>
+    <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+    <div id="prompt" class="hidden"></div>
+    <div id="notice" class="hidden"></div>
+    <div class="hud-bottom">
+      <div class="stat"><small>SUIT INTEGRITY</small><div class="track"><div id="health-bar"></div></div><strong id="health">100%</strong></div>
+      <div class="stat"><small>OXYGEN</small><div class="track oxygen"><div id="oxygen-bar"></div></div><strong id="oxygen">100%</strong></div>
+      <div class="stat ammo"><small>PLASMA CARBINE</small><div><strong id="ammo">30</strong><span> / <span id="reserve">180</span></span></div></div>
+    </div>
+    <div class="hint">WASD MOVE · MOUSE AIM · CLICK FIRE · R RELOAD · E INTERACT · SHIFT SPRINT · ESC PAUSE</div>
+  </div>
+  <div id="overlay" class="overlay">
+    <div class="panel">
+      <div class="eyebrow">AN ORIGINAL FIRST-PERSON SURVIVAL GAME</div>
+      <h1>RED <span>HORIZON</span></h1>
+      <p id="overlay-copy">Earth is lost. Your crew has one ship left. Recover three scattered power cores, fight through the alien occupation, and reach the launch site. A small human colony is waiting on Mars.</p>
+      <div class="controls"><span>WASD <b>MOVE</b></span><span>MOUSE <b>AIM</b></span><span>CLICK <b>FIRE</b></span><span>R <b>RELOAD</b></span><span>E <b>INTERACT</b></span></div>
+      <button id="start-button">BEGIN MISSION <span>→</span></button>
+      <p class="small">Desktop browser and keyboard recommended. Click to lock your mouse.</p>
+    </div>
+  </div>
+  <script type="module" src="./game.js"></script>
+</body>
+</html>
