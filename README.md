@@ -16,6 +16,8 @@ Open `http://127.0.0.1:8000` in a desktop browser. Node.js is required. Three.js
 
 WASD move, mouse aim, click to fire, hold to fire automatic weapons, R reload, Shift sprint, E interact or pick up, 1–5 switch owned weapons, M mute audio, Esc pause. After finding the optic module, hold right mouse or press Q to aim; Q toggles aiming for touchpad users. Click **Begin Mission** to lock the pointer. If your browser does not support mouse lock, move the cursor to aim and click the game to fire.
 
+The mission opens with a short first-person wake-up scene. The astronaut opens their eyes, pushes up from the ground, and regains control. Press Space or click the scene to skip the opening on replays.
+
 The relay power core is in the open southwest of the fallen mast. Use **Test Sound** on the start screen to check browser audio; the status confirms whether the browser's audio engine started. If that status says audio is ready but you hear nothing, check your device and browser volume. On a Windows laptop, touchpad palm rejection can pause mouse input briefly after keyboard movement; increasing touchpad sensitivity in Windows settings can help.
 
 ## Current scope

@@ -578,6 +578,17 @@ function buildGunHands() {
   for(let i=0;i<3;i++) gunPart(weapon,.037,.04,.14,-.17+i*.055,-.135,-.61,glove,.012);
 }
 buildGunHands();
+const wakeHands=new THREE.Group();camera.add(wakeHands);wakeHands.visible=false;
+for(const side of [-1,1]) {
+  const sleeve=gunPart(wakeHands,.2,.21,.44,side*.43,-.44,-.38,suit,.045);
+  sleeve.rotation.x=-.4; sleeve.rotation.z=side*.16;
+  gunPart(wakeHands,.22,.16,.18,side*.44,-.29,-.65,glove,.035);
+  for(let i=0;i<4;i++) {
+    const finger=gunPart(wakeHands,.043,.07,.17,side*.44+(i-1.5)*.05,-.26,-.81,glove,.014);
+    finger.rotation.x=-.22;
+  }
+  gunPart(wakeHands,.23,.035,.12,side*.43,-.36,-.55,gunDark,.012);
+}
 function buildGunModel(id) {
   const g = new THREE.Group();
   const accent=new THREE.MeshStandardMaterial({color:weaponSpecs[id].color,metalness:.32,roughness:.35,
@@ -770,7 +781,7 @@ const raycaster = new THREE.Raycaster();
 const aim = new THREE.Vector2(0, 0);
 const state = { mode: 'menu', health: 100, oxygen: 100,
   collected: 0, kills: 0, lastShot: 0, lastSpawn: 0, reloadAt: 0, noticeUntil: 0, fireUntil: 0,
-  yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0,
+  yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0, wakeStart: 0,
   escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0,
   clinicAmbushUntil: 0, clinicSecondWaveAt: 0,
   launchDefense: 'idle', launchCharge: 0, launchWave: 0 };
@@ -846,6 +857,7 @@ function sound(kind, weaponId = activeWeapon) {
   else if (kind === 'reload') tone(95,180,.18,.25,'square');
   else if (kind === 'siren') { tone(260,620,.65,.32,'sine'); tone(620,260,.65,.25,'sine'); }
   else if (kind === 'launch') { tone(75,180,1.7,.65); noise(1.6,.35); }
+  else if (kind === 'wake') { noise(.48,.12); tone(100,190,.55,.12,'sine'); }
   else if (kind === 'test') { tone(660,880,.22,.5,'sine'); setTimeout(() => tone(880,1100,.22,.5,'sine'),180); }
 }
 const alienSkin = new THREE.MeshStandardMaterial({
@@ -1175,9 +1187,9 @@ function reset() {
   for (const c of cores) earth.remove(c.group);
   cores = coreSites.map(([x, z],i) => makeCore(x, z,
     ['CLINIC CORE','RELAY CORE','CRASH CORE'][i]));
-  Object.assign(state, { mode: 'playing', health: 100, oxygen: 100,
+  Object.assign(state, { mode: 'waking', health: 100, oxygen: 100,
     collected: 0, kills: 0, lastShot: 0, lastSpawn: performance.now(), reloadAt: 0,
-    yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0,
+    yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0, wakeStart: performance.now(),
     escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0,
     clinicAmbushUntil: 0, clinicSecondWaveAt: 0,
     launchDefense: 'idle', launchCharge: 0, launchWave: 0 });
@@ -1187,7 +1199,12 @@ function reset() {
   defenseRing.material.color.setHex(0xff9b65);
   beacon.color.setHex(0xff9b65);
   clinicAlarm.intensity=0;
-  weapon.visible = true;
+  weapon.visible = false;
+  wakeHands.visible = true;
+  wakeHands.position.set(0,-.2,0);
+  $('wake-sequence').style.setProperty('--lid','50');
+  $('wake-line').textContent='Regaining consciousness';
+  $('wake-sequence').classList.remove('hidden');
   $('arrival-caption').classList.add('hidden');
   beacon.intensity = 7;
   mars.visible = false; earth.visible = true;
@@ -1198,8 +1215,8 @@ function reset() {
   scene.fog.density = .013;
   sun.color.setHex(0xb7a493); sun.intensity = 1.65;
   renderer.toneMappingExposure = 1.04;
-  camera.position.set(0, 1.72, 79);
-  camera.rotation.set(0, 0, 0);
+  camera.position.set(0, .28, 81);
+  camera.rotation.set(-.9,0,.48);
   lastPointer = null;
   keys.clear();
   firing = false;
@@ -1222,10 +1239,43 @@ function reset() {
   spawnAlien(-21,36,'runner');
   spawnAlien(35,-19,'brute');
   spawnAlien(-19,-55,'stalker');
-  ui.hud.classList.remove('hidden');
+  ui.hud.classList.add('hidden');
   ui.overlay.classList.add('hidden');
   updateHud();
-  notice('MISSION START', 2);
+}
+const WAKE_SECONDS=5.2;
+function finishWake() {
+  if(state.mode!=='waking') return;
+  state.mode='playing';
+  state.lastSpawn=performance.now();
+  state.yaw=0;state.pitch=0;
+  camera.position.set(0,1.72,79);
+  camera.rotation.set(0,0,0);
+  wakeHands.visible=false;
+  weapon.visible=true;
+  $('wake-sequence').classList.add('hidden');
+  ui.hud.classList.remove('hidden');
+  keys.clear();lastPointer=null;
+  notice('MISSION START // FIND THE POWER CORES',2.4);
+  updateHud();
+}
+function updateWake(now) {
+  const t=Math.min(1,(now-state.wakeStart)/(WAKE_SECONDS*1000));
+  const smooth=(x)=>{const v=THREE.MathUtils.clamp(x,0,1);return v*v*(3-2*v);};
+  const rise=smooth((t-.24)/.7);
+  camera.position.set(0,.28+rise*1.44+Math.sin(now*.007)*.008,81-rise*2);
+  camera.rotation.set(-.9+rise*.9,0,.48*(1-rise));
+  wakeHands.position.y=-.2+smooth((t-.18)/.5)*.14-smooth((t-.73)/.22)*.3;
+  wakeHands.rotation.x=-.18+rise*.22;
+  wakeHands.visible=t>.13 && t<.94;
+  let lid=50;
+  if(t>.08) lid=50-42*smooth((t-.08)/.28);
+  if(t>.46 && t<.67) lid=8+30*Math.sin((t-.46)/.21*Math.PI)**2;
+  if(t>.86) lid=8-8*smooth((t-.86)/.12);
+  $('wake-sequence').style.setProperty('--lid',lid.toFixed(1));
+  $('wake-line').textContent=t<.32?'Regaining consciousness':
+    t<.63?'Suit pressure stable':t<.86?'Get up. Find the ship.':'Move now.';
+  if(t>=1) finishWake();
 }
 function pause() {
   if (state.mode !== 'playing') return;
@@ -1241,7 +1291,7 @@ function resume() {
   if (state.mode === 'menu' || state.mode === 'dead' || state.mode === 'won') reset();
   else { state.mode = 'playing'; ui.overlay.classList.add('hidden'); }
   requestMouseLock();
-  audioReady.then(ready => { if (ready && state.mode === 'playing') sound('test'); });
+  audioReady.then(ready => { if (ready && state.mode === 'waking') sound('wake'); });
 }
 function requestMouseLock() {
   const result = renderer.domElement.requestPointerLock?.();
@@ -1252,6 +1302,8 @@ function endGame(win, reason = '') {
   state.mode = win ? 'won' : 'dead';
   aiming=false; aimHeld=false;
   ui.hud.classList.add('hidden');
+  $('wake-sequence').classList.add('hidden');
+  wakeHands.visible=false;
   $('arrival-caption').classList.add('hidden');
   ui.overlay.classList.remove('hidden');
   ui.overlay.classList.toggle('won',win);
@@ -1823,7 +1875,8 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min((now - previous) / 1000, .05); previous = now;
   updateAtmosphere(dt, now);
-  if (state.mode === 'playing') {
+  if (state.mode === 'waking') updateWake(now);
+  else if (state.mode === 'playing') {
     state.elapsed += dt;
     updateMovement(dt);
     updateAliens(dt, now);
@@ -1936,7 +1989,8 @@ $('audio-test').addEventListener('click', async () => {
   }
 });
 renderer.domElement.addEventListener('click', () => {
-  if (state.mode === 'playing' && document.pointerLockElement !== renderer.domElement) requestMouseLock();
+  if (state.mode === 'waking') finishWake();
+  else if (state.mode === 'playing' && document.pointerLockElement !== renderer.domElement) requestMouseLock();
 });
 document.addEventListener('pointerlockchange', () => {
   lastPointer = null;
@@ -1958,6 +2012,9 @@ window.addEventListener('pointermove', (event) => {
 });
 window.addEventListener('pointerleave', () => { lastPointer = null; });
 document.addEventListener('keydown', (event) => {
+  if(state.mode==='waking' && (event.code==='Space'||event.code==='Enter')) {
+    event.preventDefault();finishWake();return;
+  }
   if (/^(Key[WASD]|Arrow(Up|Down|Left|Right)|Digit[1-5]|Shift(Left|Right))$/.test(event.code))
     event.preventDefault();
   keys.add(event.code);
