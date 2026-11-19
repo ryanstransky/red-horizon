@@ -486,6 +486,58 @@ const gunGrip = new THREE.MeshStandardMaterial({color:0x303b39,metalness:.08,rou
 const gunCopper = new THREE.MeshStandardMaterial({color:0xa47b57,metalness:.53,roughness:.43});
 const gunLens = new THREE.MeshStandardMaterial({color:0x245c65,metalness:.34,roughness:.16,
   emissive:0x145971,emissiveIntensity:.34});
+function equipmentTexture(base, seed) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = base; ctx.fillRect(0, 0, 256, 256);
+  let value = seed;
+  const random = () => ((value = (value * 1664525 + 1013904223) >>> 0) / 4294967296);
+  for (let i = 0; i < 11000; i++) {
+    const shade = random() > .5 ? 255 : 0;
+    ctx.fillStyle = `rgba(${shade},${shade},${shade},${.015 + random() * .06})`;
+    ctx.fillRect(random() * 256, random() * 256, .5 + random() * 2, .5 + random() * 2);
+  }
+  for (let i = 0; i < 90; i++) {
+    const x = random() * 256, y = random() * 256;
+    ctx.strokeStyle = random() > .5 ? 'rgba(210,218,210,.13)' : 'rgba(8,15,17,.16)';
+    ctx.lineWidth = .25 + random() * .5;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 3 + random() * 24, y + random() * 2); ctx.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  return texture;
+}
+gunFinish.map = equipmentTexture('#b7c2bf', 47);
+gunSteel.map = equipmentTexture('#d5d9d2', 51);
+gunDark.map = equipmentTexture('#a4b0ad', 67);
+gunGrip.map = equipmentTexture('#b5b9ad', 77);
+gunCopper.map = equipmentTexture('#d2bda1', 83);
+for (const material of [gunFinish, gunSteel, gunDark, gunGrip, gunCopper]) material.needsUpdate = true;
+function gunRivet(parent, x, y, z, radius=.009) {
+  const rivet = new THREE.Mesh(new THREE.SphereGeometry(radius, 6, 4), gunSteel);
+  rivet.position.set(x,y,z); parent.add(rivet);
+}
+function gunLabel(parent, label, x, y, z, width=.18) {
+  const canvas=document.createElement('canvas'); canvas.width=256; canvas.height=64;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#b7c4c1'; ctx.font='bold 33px monospace';
+  ctx.textAlign='center'; ctx.fillText(label,128,43);
+  const texture=new THREE.CanvasTexture(canvas);
+  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(width,width/4),
+    new THREE.MeshBasicMaterial({map:texture,transparent:true,side:THREE.DoubleSide,depthWrite:false}));
+  mesh.position.set(x,y,z); parent.add(mesh);
+  return mesh;
+}
+function gunSideMarkings(parent, label, halfWidth, y, z) {
+  for (const side of [-1,1]) {
+    const plate=gunPart(parent,.008,.068,.19,side*(halfWidth+.004),y,z,gunDark,.002);
+    const marking=gunLabel(parent,label,side*(halfWidth+.01),y+.004,z,.14);
+    marking.rotation.y=side*Math.PI/2;
+    for (const offset of [-.075,.075]) gunRivet(parent,side*(halfWidth+.013),y-.021,z+offset,.006);
+  }
+}
 function gunPart(parent,w,h,d,x,y,z,material=gunFinish,r=.025) {
   const mesh=new THREE.Mesh(new RoundedBoxGeometry(w,h,d,2,Math.min(r,w*.25,h*.25,d*.25)),material);
   mesh.position.set(x,y,z); parent.add(mesh); return mesh;
@@ -612,6 +664,31 @@ function buildGunModel(id) {
     gunPart(g,.4,.035,.18,0,.12,-.5,accent,.008);
   } else {
     gunPart(g,.28,.17,.44,0,0,-.34,gunFinish,.035);
+  }
+  const markings = {
+    pistol: ['M-9',.135,.032,-.39], assault: ['AR-7',.16,.025,-.38],
+    shotgun: ['SG-4',.14,.018,-.34], sniper: ['LR-2',.145,.01,-.38],
+    minigun: ['MX-6',.23,-.015,-.34]
+  };
+  if (markings[id]) gunSideMarkings(g,...markings[id]);
+  if (id==='pistol') {
+    for (const side of [-1,1]) {
+      for (let i=0;i<6;i++) gunPart(g,.006,.009,.027,side*.126,.085,-.54+i*.047,gunDark,.002);
+      gunRivet(g,side*.10,-.1,-.155,.011);
+    }
+  } else if (id==='assault' || id==='shotgun' || id==='sniper') {
+    const railZ=id==='sniper'?-.4:id==='shotgun'?-.76:-.57;
+    const railY=id==='sniper'?.145:id==='shotgun'?.155:.17;
+    for(let i=0;i<6;i++) gunPart(g,.25,.012,.022,0,railY,railZ+(i-2.5)*.065,gunSteel,.003);
+    for(const side of [-1,1]) {
+      gunPart(g,.012,.11,.27,side*.16,-.16,-.05,gunGrip,.003);
+      for(let i=0;i<4;i++) gunPart(g,.014,.006,.032,side*.169,-.21+i*.029,-.05,gunDark,.002);
+    }
+  } else if (id==='minigun') {
+    for(const side of [-1,1]) {
+      gunPart(g,.012,.27,.3,side*.235,-.018,-.35,gunDark,.003);
+      for(let i=0;i<4;i++) gunPart(g,.016,.018,.035,side*.243,.075-i*.045,-.45,gunSteel,.003);
+    }
   }
   gunPart(g,.08,.025,.15,0,.105,-.34,accent,.007);
   return g;
@@ -777,6 +854,21 @@ const alienSkin = new THREE.MeshStandardMaterial({
 });
 const alienShell = mat(0x344d49, .2, .65);
 const alienEyes = mat(0x9ed6c4, .1, .42, 0x40c39e, .75);
+const alienSkinByKind = {
+  stalker: alienSkin,
+  runner: alienSkin.clone(),
+  brute: alienSkin.clone(),
+  spitter: alienSkin.clone(),
+};
+alienSkinByKind.runner.color.setHex(0x91b4a4);
+alienSkinByKind.brute.color.setHex(0xb39587);
+alienSkinByKind.spitter.color.setHex(0x83b3ae);
+const alienShellByKind = {
+  stalker: alienShell,
+  runner: mat(0x294942,.24,.62),
+  brute: mat(0x664a43,.28,.65),
+  spitter: mat(0x2b6460,.24,.57),
+};
 // Invisible, stable targets cover the entire silhouette while the visible model animates.
 const hitboxMaterial = new THREE.MeshBasicMaterial({
   transparent: true, opacity: 0, colorWrite: false, depthWrite: false, side: THREE.DoubleSide
@@ -854,20 +946,20 @@ new GLTFLoader().load('./assets/models/alien-grey-rigged.glb', gltf => {
   alienTemplate = visual;
   alienClips = gltf.animations;
   renderer.compileAsync(visual, camera, scene).catch(() => {});
-  aliens.forEach(attachDetailedAlien);
 }, undefined, error => console.warn('Detailed alien unavailable; using game model.', error));
 function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() < .45 ? 'runner' : 'stalker') {
   const profile = alienKinds[kind];
   const group = new THREE.Group();
   group.position.set(x, 0, z);
   group.scale.setScalar(profile.scale);
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(.38, .66, 7, 14), alienSkin);
+  const skin = alienSkinByKind[kind], shell = alienShellByKind[kind];
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(.38, .66, 7, 14), skin);
   body.position.y = 1.08; body.castShadow = true; group.add(body);
-  const chest = sphere(group, .39, 0, 1.31, .17, alienShell);
+  const chest = sphere(group, .39, 0, 1.31, .17, shell);
   chest.scale.set(1.03, .9, .53);
-  const head = sphere(group, .44, 0, 1.88, .08, alienSkin);
+  const head = sphere(group, .44, 0, 1.88, .08, skin);
   head.scale.set(1.18, .79, .94);
-  const jaw = sphere(group, .19, 0, 1.57, .37, alienShell);
+  const jaw = sphere(group, .19, 0, 1.57, .37, shell);
   jaw.scale.set(1.35, .52, .9);
   const arms = [];
   for (const side of [-1, 1]) {
@@ -875,19 +967,47 @@ function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() <
     eye.scale.set(1.3, .55, .4);
     const arm = new THREE.Group();
     arm.position.set(side * .37, 1.43, 0);
-    rod(arm, [0, 0, 0], [side * .26, -.46, .2], .115, alienSkin);
-    rod(arm, [side * .26, -.46, .2], [side * .24, -.95, .48], .075, alienSkin);
+    rod(arm, [0, 0, 0], [side * .26, -.46, .2], .115, skin);
+    rod(arm, [side * .26, -.46, .2], [side * .24, -.95, .48], .075, skin);
     for (let claw = -1; claw <= 1; claw++) {
-      rod(arm, [side * .24, -.95, .48], [side * .24 + claw * .065, -1.14, .68], .023, alienShell);
+      rod(arm, [side * .24, -.95, .48], [side * .24 + claw * .065, -1.14, .68], .023, shell);
     }
     group.add(arm); arms.push(arm);
-    rod(group, [side * .21, .64, 0], [side * .32, .18, -.07], .14, alienSkin);
-    rod(group, [side * .32, .18, -.07], [side * .36, .05, .28], .105, alienShell);
+    rod(group, [side * .21, .64, 0], [side * .32, .18, -.07], .14, skin);
+    rod(group, [side * .32, .18, -.07], [side * .36, .05, .28], .105, shell);
   }
   for (let i = 0; i < 3; i++) {
-    const spine = new THREE.Mesh(new THREE.ConeGeometry(.11, .38 + i * .13, 7), alienShell);
+    const spine = new THREE.Mesh(new THREE.ConeGeometry(.11, .38 + i * .13, 7), shell);
     spine.position.set(0, 1.2 + i * .25, -.36); spine.rotation.x = -.65;
     group.add(spine);
+  }
+  for(let i=0;i<5;i++) {
+    const rib=new THREE.Mesh(new THREE.TorusGeometry(.3-i*.025,.014,5,16,Math.PI*.85),shell);
+    rib.position.set(0,1.33-i*.13,.22); rib.rotation.z=Math.PI*.075;
+    group.add(rib);
+  }
+  if(kind==='brute') {
+    for(const side of [-1,1]) {
+      const plate=sphere(group,.24,side*.43,1.42,.05,shell); plate.scale.set(1.4,.58,1.4);
+      for(let i=0;i<3;i++) {
+        const spike=new THREE.Mesh(new THREE.ConeGeometry(.08,.28-i*.04,7),shell);
+        spike.position.set(side*(.35+i*.12),1.52-i*.07,-.03); spike.rotation.z=side*.5;
+        group.add(spike);
+      }
+    }
+  } else if(kind==='runner') {
+    for(const side of [-1,1]) {
+      const fin=new THREE.Mesh(new THREE.ConeGeometry(.09,.33,7),shell);
+      fin.position.set(side*.42,1.7,-.12); fin.rotation.z=side*.5; group.add(fin);
+    }
+  } else if(kind==='spitter') {
+    const sacMaterial=mat(0x3b8275,.08,.37,0x2c9d83,.27);
+    for(const side of [-1,1]) {
+      const sac=sphere(group,.2,side*.33,1.32,-.17,sacMaterial);
+      sac.scale.set(.9,1.35,.8);
+      const gland=sphere(group,.065,side*.24,1.58,.28,alienEyes);
+      gland.scale.set(.7,.8,.45);
+    }
   }
   group.traverse((part) => { if (part.isMesh) part.userData.alien = group; });
   const fallbackParts = [...group.children];
@@ -909,7 +1029,6 @@ function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() <
     dashUntil: 0, dashHit: false, dashVector: new THREE.Vector2(),
     heading: Math.random()*Math.PI*2, velocity: new THREE.Vector2() };
   aliens.push(alien);
-  attachDetailedAlien(alien);
 }
 function canStand(x, z, radius = .58) {
   if (Math.abs(x) > 61 || Math.abs(z) > 93) return false;
@@ -1328,9 +1447,12 @@ function updateAliens(dt, now) {
     now - state.lastSpawn > (state.collected === 3 ? 5000 : 8000) && aliens.length < 12) {
     spawnAtEdge(); state.lastSpawn = now;
   }
-  const detailed = new Set(aliens.filter(a => a.detail && !a.dyingAt)
+  const detailed = new Set(aliens.filter(a => !a.dyingAt)
     .sort((a, b) => a.group.position.distanceToSquared(camera.position) -
-      b.group.position.distanceToSquared(camera.position)).slice(0, 1));
+      b.group.position.distanceToSquared(camera.position)).slice(0, 3));
+  if (alienTemplate) for (const a of detailed) {
+    if (a.group.position.distanceToSquared(camera.position) < 24 * 24) attachDetailedAlien(a);
+  }
   for (const a of [...aliens]) {
     if (a.dyingAt) {
       const death = Math.min(1,(now-a.dyingAt)/620);
@@ -1435,7 +1557,7 @@ function updateAliens(dt, now) {
         else if (a.spitAt || a.dashWindupUntil) material.emissive.setHex(0x42e9c9);
         else if (a.windupUntil) material.emissive.setHex(0xff4f18);
         material.emissiveIntensity = a.spitAt || a.windupUntil || a.dashWindupUntil
-          ? .7 : now<a.hitUntil ? .8 : 1;
+          ? .18 : now<a.hitUntil ? .3 : 1;
       }
     }
     if (a.kind==='spitter') {
