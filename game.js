@@ -17,7 +17,7 @@ const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.07, 2
 camera.rotation.order = 'YXZ';
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1));
 renderer.shadowMap.enabled = false;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -504,6 +504,7 @@ const weaponPickups = pickupSites.map(site => {
 });
 
 const aliens = [];
+const alienShots = [];
 const tracers = [];
 const impacts = [];
 const keys = new Set();
@@ -564,6 +565,7 @@ function sound(kind, weaponId = activeWeapon) {
   else if (kind === 'kill') { tone(220,55,.28,.35); noise(.18,.18); }
   else if (kind === 'damage') { tone(110,42,.35,.8); noise(.2,.25); }
   else if (kind === 'warning') tone(620,210,.28,.3,'square');
+  else if (kind === 'spit') tone(390,105,.22,.25,'sawtooth');
   else if (kind === 'pickup') { tone(440,880,.3,.3,'sine'); tone(660,1100,.26,.17,'sine'); }
   else if (kind === 'reload') tone(95,180,.18,.25,'square');
   else if (kind === 'siren') { tone(260,620,.65,.32,'sine'); tone(620,260,.65,.25,'sine'); }
@@ -579,6 +581,7 @@ const alienKinds = {
   stalker: {scale: 1, speed: 2.05, hp: 3, damage: 10, range: 1.7, tint: 0xdde9dc},
   runner: {scale: .76, speed: 3.35, hp: 2, damage: 7, range: 1.55, tint: 0xb9ffd9},
   brute: {scale: 1.4, speed: 1.3, hp: 7, damage: 18, range: 2.2, tint: 0xffb4a0},
+  spitter: {scale: .9, speed: 1.65, hp: 3, damage: 9, range: 2, tint: 0x96f3e5},
 };
 let alienTemplate = null;
 let alienClips = [];
@@ -619,6 +622,7 @@ new GLTFLoader().load('./assets/models/alien-grey-rigged.glb', gltf => {
     -center.z * visual.scale.z);
   alienTemplate = visual;
   alienClips = gltf.animations;
+  renderer.compileAsync(visual, camera, scene).catch(() => {});
   aliens.forEach(attachDetailedAlien);
 }, undefined, error => console.warn('Detailed alien unavailable; using game model.', error));
 function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() < .45 ? 'runner' : 'stalker') {
@@ -658,7 +662,7 @@ function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() <
   earth.add(group);
   const alien = { group, arms, fallbackParts: [...group.children], detail: null,
     kind, hp: profile.hp, speed: profile.speed, damage: profile.damage, range: profile.range,
-    attackAt: 0, windupUntil: 0, hitUntil: 0, dyingAt: 0, phase: Math.random() * 7,
+    attackAt: 0, windupUntil: 0, spitAt: 0, hitUntil: 0, dyingAt: 0, phase: Math.random() * 7,
     heading: Math.random()*Math.PI*2, velocity: new THREE.Vector2() };
   aliens.push(alien);
   attachDetailedAlien(alien);
@@ -673,7 +677,7 @@ function spawnAtEdge(type) {
     const x = camera.position.x + Math.cos(angle) * distance;
     const z = camera.position.z + Math.sin(angle) * distance;
     if (!canStand(x, z, 1)) continue;
-    spawnAlien(x, z, type); return;
+    spawnAlien(x, z, type || (state.collected > 0 && Math.random() < .28 ? 'spitter' : undefined)); return;
   }
 }
 function updateHud() {
@@ -726,6 +730,8 @@ function notice(message, seconds = 2.2) {
 function reset() {
   for (const a of aliens) earth.remove(a.group);
   aliens.length = 0;
+  for (const shot of alienShots) { earth.remove(shot.mesh); shot.mesh.geometry.dispose(); shot.mesh.material.dispose(); }
+  alienShots.length = 0;
   for (const c of cores) earth.remove(c.group);
   cores = coreSites.map(([x, z],i) => makeCore(x, z,
     ['CLINIC CORE','RELAY CORE','CRASH CORE'][i]));
@@ -744,6 +750,7 @@ function reset() {
   renderer.toneMappingExposure = 1.04;
   camera.position.set(0, 1.72, 79);
   camera.rotation.set(0, 0, 0);
+  lastPointer = null;
   keys.clear();
   firing = false;
   for (const id of weaponOrder) {
@@ -768,6 +775,7 @@ function reset() {
 function pause() {
   if (state.mode !== 'playing') return;
   state.mode = 'paused';
+  lastPointer = null;
   ui.copy.textContent = 'Mission paused. Return when you are ready.';
   ui.start.innerHTML = 'RESUME MISSION <span>→</span>';
   ui.overlay.classList.remove('hidden');
@@ -942,7 +950,7 @@ function updateAliens(dt, now) {
   }
   const detailed = new Set(aliens.filter(a => a.detail && !a.dyingAt)
     .sort((a, b) => a.group.position.distanceToSquared(camera.position) -
-      b.group.position.distanceToSquared(camera.position)).slice(0, 2));
+      b.group.position.distanceToSquared(camera.position)).slice(0, 1));
   for (const a of [...aliens]) {
     if (a.dyingAt) {
       const death = Math.min(1,(now-a.dyingAt)/620);
@@ -962,8 +970,9 @@ function updateAliens(dt, now) {
     const dx = camera.position.x - p.x, dz = camera.position.z - p.z;
     const dist = Math.hypot(dx, dz);
     const desired = new THREE.Vector2();
-    if (dist < 48 && dist > a.range*.78 && !a.windupUntil) {
-      desired.set(dx/dist,dz/dist);
+    if (dist < 48 && !a.windupUntil && !a.spitAt && (a.kind==='spitter' || dist > a.range*.78)) {
+      const approach = a.kind==='spitter' && dist < 8 ? -1 : 1;
+      if (a.kind!=='spitter' || dist > 10 || dist < 8) desired.set(dx/dist*approach,dz/dist*approach);
       for (const other of aliens) if (other!==a && !other.dyingAt) {
         const sx=p.x-other.group.position.x, sz=p.z-other.group.position.z;
         const gap=Math.hypot(sx,sz);
@@ -1006,9 +1015,22 @@ function updateAliens(dt, now) {
       for (const {material,emissive} of a.materials) {
         material.emissive.copy(emissive);
         if (now < a.hitUntil) material.emissive.setHex(0xff3520);
+        else if (a.spitAt) material.emissive.setHex(0x42e9c9);
         else if (a.windupUntil) material.emissive.setHex(0xff4f18);
-        material.emissiveIntensity = a.windupUntil ? .7 : now<a.hitUntil ? .8 : 1;
+        material.emissiveIntensity = a.spitAt || a.windupUntil ? .7 : now<a.hitUntil ? .8 : 1;
       }
+    }
+    if (a.kind==='spitter') {
+      if (!a.spitAt && now >= a.attackAt && dist > 3 && dist < 20) {
+        a.spitAt = now + 650;
+        sound('warning');
+      }
+      if (a.spitAt && now >= a.spitAt) {
+        a.spitAt = 0;
+        a.attackAt = now + 2700;
+        if (dist < 22) fireAlienShot(a, now);
+      }
+      continue;
     }
     if (dist < a.range && !a.windupUntil && now >= a.attackAt) {
       a.windupUntil = now + (a.kind==='runner'?350:550);
@@ -1032,6 +1054,38 @@ function updateAliens(dt, now) {
     }
   }
 }
+function fireAlienShot(alien, now) {
+  if (alienShots.length >= 14) return;
+  const origin = alien.group.position;
+  const direction = new THREE.Vector3(camera.position.x-origin.x, 0, camera.position.z-origin.z).normalize();
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(.2, 12, 8),
+    new THREE.MeshBasicMaterial({color: 0x77ffdf}));
+  mesh.position.set(origin.x, 1.55, origin.z);
+  earth.add(mesh);
+  alienShots.push({mesh, direction, born:now});
+  sound('spit');
+}
+function updateAlienShots(dt, now) {
+  for (let i=alienShots.length-1; i>=0; i--) {
+    const shot=alienShots[i];
+    shot.mesh.position.addScaledVector(shot.direction, dt*11);
+    const p=shot.mesh.position;
+    const hit=Math.hypot(p.x-camera.position.x,p.z-camera.position.z)<.75;
+    if (hit && now>state.invulnerableUntil) {
+      state.health=Math.max(0,state.health-9);
+      state.invulnerableUntil=now+450;
+      ui.damage.style.opacity=.85;
+      setTimeout(() => ui.damage.style.opacity=0,180);
+      sound('damage'); updateHud();
+      if (state.health<=0) endGame(false);
+    }
+    if (hit || now-shot.born>2200 || !canStand(p.x,p.z,.15)) {
+      earth.remove(shot.mesh);
+      shot.mesh.geometry.dispose(); shot.mesh.material.dispose();
+      alienShots.splice(i,1);
+    }
+  }
+}
 function updatePrompt() {
   let label = '';
   for (const c of cores) {
@@ -1051,7 +1105,6 @@ function updatePrompt() {
 }
 const walkForward = new THREE.Vector3();
 const walkRight = new THREE.Vector3();
-const worldUp = new THREE.Vector3(0, 1, 0);
 function updateMovement(dt) {
   const forward = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
   const strafe = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
@@ -1061,11 +1114,9 @@ function updateMovement(dt) {
   }
   const length = Math.hypot(forward, strafe);
   const speed = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 9 : 6;
-  // Use the camera's actual heading, projected onto the ground plane.
-  camera.getWorldDirection(walkForward);
-  walkForward.y = 0;
-  walkForward.normalize();
-  walkRight.crossVectors(walkForward, worldUp).normalize();
+  // Movement reads the same heading as mouse look, without waiting for a camera matrix update.
+  walkForward.set(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
+  walkRight.set(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
   const dx = (walkForward.x * forward + walkRight.x * strafe) / length * speed * dt;
   const dz = (walkForward.z * forward + walkRight.z * strafe) / length * speed * dt;
   const x = camera.position.x + dx, z = camera.position.z + dz;
@@ -1108,12 +1159,13 @@ let previous = performance.now();
 let hudAt = 0;
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min((now - previous) / 1000, .35); previous = now;
+  const dt = Math.min((now - previous) / 1000, .05); previous = now;
   updateAtmosphere(dt, now);
   if (state.mode === 'playing') {
     state.elapsed += dt;
     updateMovement(dt);
     updateAliens(dt, now);
+    updateAlienShots(dt, now);
     if (firing && weaponSpecs[activeWeapon].auto) shoot();
     for (const pickup of weaponPickups) if (!pickup.collected) {
       pickup.display.rotation.y += dt*.7;
@@ -1188,17 +1240,24 @@ renderer.domElement.addEventListener('click', () => {
   if (state.mode === 'playing' && document.pointerLockElement !== renderer.domElement) requestMouseLock();
 });
 document.addEventListener('pointerlockchange', () => {
+  lastPointer = null;
   if (document.pointerLockElement !== renderer.domElement) {
     keys.clear(); firing=false;
     if (state.mode === 'playing') pause();
   }
 });
-document.addEventListener('mousemove', (event) => {
+let lastPointer = null;
+window.addEventListener('pointermove', (event) => {
   if (state.mode !== 'playing') return;
-  state.yaw -= event.movementX * .0023;
-  state.pitch = THREE.MathUtils.clamp(state.pitch - event.movementY * .0023, -1.35, 1.35);
+  const locked = document.pointerLockElement === renderer.domElement;
+  const dx = locked ? event.movementX : lastPointer ? event.clientX-lastPointer.x : 0;
+  const dy = locked ? event.movementY : lastPointer ? event.clientY-lastPointer.y : 0;
+  lastPointer = {x:event.clientX,y:event.clientY};
+  state.yaw -= dx * .0023;
+  state.pitch = THREE.MathUtils.clamp(state.pitch - dy * .0023, -1.35, 1.35);
   camera.rotation.set(state.pitch, state.yaw, 0);
 });
+window.addEventListener('pointerleave', () => { lastPointer = null; });
 document.addEventListener('keydown', (event) => {
   if (/^(Key[WASD]|Arrow(Up|Down|Left|Right)|Digit[1-5]|Shift(Left|Right))$/.test(event.code))
     event.preventDefault();
