@@ -268,6 +268,43 @@ for (const [x,z] of [[-31,29],[-27,29]]) {
   block(earth,1.1,.7,.9,x,.35,z,rust);
   sphere(earth,.12,x,.78,z,orangeGlow);
 }
+// The broken central street leads into two walk-through routes around the block.
+function routeWall(w,h,d,x,z,material=concrete) {
+  const wall=block(earth,w,h,d,x,h/2,z,material);
+  obstacles.push({x,z,w,d,mesh:wall});
+  return wall;
+}
+routeWall(9.2,1.6,1.25,0,-12,rust);
+for(const x of [-3.6,3.6]) {
+  block(earth,2.1,.42,1.8,x,.25,-10.8,concrete);
+  rod(earth,[x-.65,1.7,-12],[x+.4,2.45,-11.5],.055,darkMetal);
+}
+sign('ROAD CLOSED',0,-7,0);
+
+// West: a roofless service passage connects the clinic side to the southern road.
+block(earth,11.5,.04,15,-18,.025,-24,darkMetal,false);
+for(const x of [-24,-12]) routeWall(.45,3.2,15,x,-24);
+for(const z of [-30,-24,-18]) block(earth,12,.2,.35,-18,3.25,z,rust,false);
+for(const z of [-27,-21]) {
+  block(earth,.7,1.35,1.3,-22.9,.675,z,darkMetal);
+  sphere(earth,.16,-22.9,1.45,z,orangeGlow);
+}
+const passageLight=new THREE.PointLight(0xff9362,3.2,12);
+passageLight.position.set(-18,2.9,-24); earth.add(passageLight);
+sign('SERVICE PASSAGE',-18,-14,0);
+
+// East: a roofless repair garage has openings on both sides of the relay approach.
+block(earth,12,.04,12,14,.025,-30,darkMetal,false);
+for(const z of [-36,-24]) routeWall(12,3.1,.45,14,z);
+for(const x of [8,20]) for(const z of [-34.5,-25.5]) routeWall(.45,3.1,3,x,z);
+for(const z of [-35,-25]) block(earth,12,.22,.38,14,3.25,z,rust,false);
+for(const x of [10,18]) {
+  block(earth,1.1,1.2,.55,x,.6,-34.6,darkMetal);
+  block(earth,.85,.18,.72,x,1.28,-34.6,rust);
+}
+const garageLight=new THREE.PointLight(0x73d9c5,3.5,13);
+garageLight.position.set(14,2.8,-30); earth.add(garageLight);
+sign('RELAY GARAGE',14,-21,0);
 // A fallen relay mast points toward the second core.
 rod(earth,[30,0,-25],[36,8,-19],.17,darkMetal);
 rod(earth,[36,8,-19],[38,10,-17],.09,darkMetal);
