@@ -4,3 +4,6 @@
 .audio-check{display:flex;align-items:center;gap:14px;margin-top:12px;color:#9db6b1;font-size:11px}.audio-check button{width:auto;min-width:125px;padding:8px 10px;background:#193638;border:1px solid #4d8178;color:#c9f5e7;font:700 13px 'Barlow Condensed',sans-serif;letter-spacing:.08em;justify-content:center}.audio-check button:hover{background:#28514f}
 .objective span.urgent{color:#ff7867;font-weight:bold}#crosshair.hit i{background:#ff795e;box-shadow:0 0 12px #ff442e}
 .ammo em{display:block;color:#97b7b0;font-size:9px;font-style:normal;letter-spacing:.04em;margin-top:6px;white-space:nowrap}
+#hit-feedback{position:absolute;left:50%;top:calc(50% + 28px);transform:translateX(-50%) scale(.8);opacity:0;color:#ff8e75;font:700 13px 'Barlow Condensed',sans-serif;letter-spacing:.16em;text-shadow:0 1px 8px #000,0 0 14px #ff4c36;white-space:nowrap;transition:opacity .12s,transform .12s}
+#hit-feedback.active{opacity:1;transform:translateX(-50%) scale(1)}#hit-feedback.critical{color:#ffd280;text-shadow:0 1px 8px #000,0 0 16px #ffa443}#hit-feedback.kill{color:#e8fff1;text-shadow:0 1px 8px #000,0 0 18px #78e2b2}
+#crosshair.critical i{background:#ffd280;box-shadow:0 0 13px #ffb34c}#crosshair.kill i{background:#e8fff1;box-shadow:0 0 15px #8bffc2}

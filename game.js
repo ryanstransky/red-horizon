@@ -602,6 +602,7 @@ const aliens = [];
 const alienShots = [];
 const tracers = [];
 const impacts = [];
+const impactGeometry = new THREE.IcosahedronGeometry(1,0);
 const keys = new Set();
 const raycaster = new THREE.Raycaster();
 const aim = new THREE.Vector2(0, 0);
@@ -671,8 +672,9 @@ function sound(kind, weaponId = activeWeapon) {
     else if (weaponId === 'sniper') { tone(680,50,.34,.68); noise(.19,.6); }
     else { tone(220,68,.065,.27,'square'); noise(.04,.17); }
   }
-  else if (kind === 'hit') tone(340,150,.09,.24,'square');
-  else if (kind === 'kill') { tone(220,55,.28,.35); noise(.18,.18); }
+  else if (kind === 'hit') { tone(520,290,.075,.17,'triangle'); noise(.045,.09); }
+  else if (kind === 'critical') { tone(760,350,.12,.28,'triangle'); noise(.075,.11); }
+  else if (kind === 'kill') { tone(440,170,.19,.3,'triangle'); noise(.1,.12); }
   else if (kind === 'damage') { tone(110,42,.35,.8); noise(.2,.25); }
   else if (kind === 'warning') tone(620,210,.28,.3,'square');
   else if (kind === 'spit') tone(390,105,.22,.25,'sawtooth');
@@ -806,7 +808,8 @@ function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() <
   earth.add(group);
   const alien = { group, arms, fallbackParts, hitboxes, detail: null,
     kind, hp: profile.hp, speed: profile.speed, damage: profile.damage, range: profile.range,
-    attackAt: 0, windupUntil: 0, spitAt: 0, hitUntil: 0, dyingAt: 0, phase: Math.random() * 7,
+    attackAt: 0, windupUntil: 0, spitAt: 0, hitUntil: 0, staggerUntil: 0,
+    staggerSide: 1, dyingAt: 0, phase: Math.random() * 7,
     heading: Math.random()*Math.PI*2, velocity: new THREE.Vector2() };
   aliens.push(alien);
   attachDetailedAlien(alien);
@@ -876,6 +879,12 @@ function reset() {
   aliens.length = 0;
   for (const shot of alienShots) { earth.remove(shot.mesh); shot.mesh.geometry.dispose(); shot.mesh.material.dispose(); }
   alienShots.length = 0;
+  for (const tracer of tracers) { scene.remove(tracer.mesh); tracer.mesh.geometry.dispose(); tracer.mesh.material.dispose(); }
+  tracers.length = 0;
+  for (const impact of impacts) { scene.remove(impact.mesh); impact.mesh.material.dispose(); }
+  impacts.length = 0;
+  $('crosshair').classList.remove('hit','critical','kill');
+  $('hit-feedback').className = '';
   for (const c of cores) earth.remove(c.group);
   cores = coreSites.map(([x, z],i) => makeCore(x, z,
     ['CLINIC CORE','RELAY CORE','CRASH CORE'][i]));
@@ -956,6 +965,32 @@ function reload() {
   sound('reload');
   notice('RELOADING', 1.1);
 }
+function spawnImpact(point, color, now, alienHit) {
+  if (impacts.length > 90) return;
+  const count=alienHit?5:3;
+  for(let i=0;i<count;i++) {
+    const mesh=new THREE.Mesh(impactGeometry,new THREE.MeshBasicMaterial({
+      color,transparent:true,opacity:i===0?.95:.75,depthWrite:false}));
+    mesh.position.copy(point);
+    mesh.scale.setScalar(i===0?.11:.035+Math.random()*.035);
+    scene.add(mesh);
+    const speed=alienHit?1.5:1;
+    impacts.push({mesh,born:now,until:now+(i===0?110:260+Math.random()*100),
+      velocity:i===0?null:new THREE.Vector3((Math.random()-.5)*speed,
+        Math.random()*speed,(Math.random()-.5)*speed)});
+  }
+}
+function showHitFeedback(rank,now) {
+  const marker=$('crosshair'), label=$('hit-feedback');
+  marker.classList.remove('hit','critical','kill');
+  label.className='';
+  const kind=rank===3?'kill':rank===2?'critical':'hit';
+  marker.classList.add(kind);
+  label.classList.add('active',kind);
+  label.textContent=rank===3?'ELIMINATED':rank===2?'CRITICAL HIT':'HIT';
+  state.hitUntil=now+(rank===3?780:rank===2?650:510);
+  sound(rank===3?'kill':rank===2?'critical':'hit');
+}
 function shoot() {
   const now = performance.now();
   const id = activeWeapon, spec = weaponSpecs[id], ammo = inventory[id];
@@ -969,6 +1004,7 @@ function shoot() {
   weapon.position.z = weaponPoses[id].z + (id==='sniper'?.18:id==='shotgun'?.16:id==='minigun'?.06:.09);
   const objects = [...aliens.flatMap(a => a.dyingAt ? [] : a.hitboxes),
     ...obstacles.map(o => o.mesh)];
+  let feedbackRank=0;
   for (let pellet=0; pellet<spec.pellets; pellet++) {
     const deviation = spec.spread;
     aim.set((Math.random()-.5)*deviation*2,(Math.random()-.5)*deviation*2);
@@ -983,22 +1019,20 @@ function shoot() {
     scene.add(tracer);
     tracers.push({mesh:tracer,start,end,born:now,travel:spec.travel,until:now+spec.travel+95,
       opacity:tracer.material.opacity});
-    if (hit) {
-      const spark=new THREE.Mesh(new THREE.SphereGeometry(id==='shotgun'?.045:.075,6,6),
-        new THREE.MeshBasicMaterial({color:hit.object.userData.alien?0xff5548:spec.color}));
-      spark.position.copy(hit.point); scene.add(spark); impacts.push({mesh:spark,until:now+140});
-    }
+    if (hit) spawnImpact(hit.point,hit.object.userData.alien?0xa1f5a0:spec.color,
+      now,!!hit.object.userData.alien);
     if (hit?.object.userData.alien) {
       const alien=aliens.find(a=>a.group===hit.object.userData.alien);
       if (alien && !alien.dyingAt) {
         const headshot=hit.object.userData.hitZone==='head';
         alien.hp-=spec.damage*(headshot?1.5:1);
         alien.hitUntil=now+170;
-        state.hitUntil=now+150;
-        $('crosshair').classList.add('hit');
-        sound('hit');
+        alien.staggerUntil=now+240;
+        alien.staggerSide=Math.random()<.5?-1:1;
+        feedbackRank=Math.max(feedbackRank,headshot?2:1);
         if (alien.hp<=0) {
-          alien.dyingAt=now; sound('kill'); state.kills++;
+          alien.dyingAt=now; state.kills++;
+          feedbackRank=3;
           if (state.kills%5===0) {
             ammo.reserve=Math.min(spec.reserve*2,ammo.reserve+spec.mag);
             notice('AMMO RECOVERED FROM FIELD CACHE');
@@ -1007,6 +1041,7 @@ function shoot() {
       }
     }
   }
+  if (feedbackRank) showHitFeedback(feedbackRank,now);
   aim.set(0,0);
   updateHud();
 }
@@ -1139,6 +1174,7 @@ function updateAliens(dt, now) {
     const headingDelta=Math.atan2(Math.sin(targetHeading-a.heading),Math.cos(targetHeading-a.heading));
     a.heading+=THREE.MathUtils.clamp(headingDelta,-dt*3.3,dt*3.3);
     a.group.rotation.y=a.heading;
+    a.group.rotation.z=Math.max(0,(a.staggerUntil-now)/240)*a.staggerSide*.21;
     const stride = Math.sin(now * .011 * a.speed + a.phase);
     a.group.position.y = Math.abs(stride) * .022;
     a.group.scale.setScalar(alienKinds[a.kind].scale * (now<a.hitUntil?1.1:1));
@@ -1357,7 +1393,8 @@ function frame(now) {
   minigunSpin += ((activeWeapon==='minigun' && firing ? 18 : 0)-minigunSpin)*Math.min(1,dt*5);
   if (minigunRotor) minigunRotor.rotation.z += minigunSpin*dt;
   if (state.hitUntil && now > state.hitUntil) {
-    $('crosshair').classList.remove('hit'); state.hitUntil=0;
+    $('crosshair').classList.remove('hit','critical','kill');
+    $('hit-feedback').className=''; state.hitUntil=0;
   }
   for (let i=tracers.length-1;i>=0;i--) if (now>tracers[i].until) {
     const line=tracers[i].mesh; scene.remove(line);
@@ -1370,9 +1407,14 @@ function frame(now) {
     tracer.mesh.geometry.attributes.position.needsUpdate=true;
     tracer.mesh.material.opacity=tracer.opacity*Math.min(1,(tracer.until-now)/95);
   }
-  for (let i=impacts.length-1;i>=0;i--) if (now>impacts[i].until) {
-    const spark=impacts[i].mesh; scene.remove(spark);
-    spark.geometry.dispose(); spark.material.dispose(); impacts.splice(i,1);
+  for (let i=impacts.length-1;i>=0;i--) {
+    const impact=impacts[i];
+    if (now>impact.until) {
+      scene.remove(impact.mesh); impact.mesh.material.dispose(); impacts.splice(i,1);
+    } else {
+      if (impact.velocity) impact.mesh.position.addScaledVector(impact.velocity,dt);
+      impact.mesh.material.opacity=Math.min(1,(impact.until-now)/140);
+    }
   }
   weapon.position.z += (weaponPoses[activeWeapon].z - weapon.position.z) * Math.min(1, dt * 14);
   renderer.render(scene, camera);
