@@ -1,4 +1,5 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -64,11 +65,22 @@ function gritTexture(base, seed, repeatX, repeatY) {
   texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return texture;
 }
+const facadeCanvases = [];
+const concretePhoto = new Image();
+concretePhoto.onload = () => facadeCanvases.forEach(draw => draw());
+concretePhoto.src = './assets/textures/concrete_wall_003_diff_1k.jpg';
 function facadeTexture(seed) {
   const canvas = document.createElement('canvas');
   canvas.width = 256; canvas.height = 512;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#626967'; ctx.fillRect(0, 0, 256, 512);
+  const texture = new THREE.CanvasTexture(canvas);
+  const draw = () => {
+  if (concretePhoto.complete && concretePhoto.naturalWidth) {
+    ctx.drawImage(concretePhoto, 0, 0, 256, 512);
+    ctx.fillStyle = 'rgba(44,52,51,.34)'; ctx.fillRect(0, 0, 256, 512);
+  } else {
+    ctx.fillStyle = '#626967'; ctx.fillRect(0, 0, 256, 512);
+  }
   let value = (Math.abs(seed * 1009) + 13) >>> 0;
   const random = () => ((value = (value * 1664525 + 1013904223) >>> 0) / 4294967296);
   for (let i = 0; i < 8500; i++) {
@@ -97,13 +109,31 @@ function facadeTexture(seed) {
     const x = random() * 256, y = random() * 512;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - random() * 18, y + random() * 30); ctx.stroke();
   }
-  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  };
+  facadeCanvases.push(draw);
+  draw();
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return texture;
 }
 const groundMat = new THREE.MeshStandardMaterial({ map: gritTexture([52, 55, 52], 23, 10, 14), roughness: 1 });
 const concrete = new THREE.MeshStandardMaterial({ map: gritTexture([89, 95, 91], 47, 2, 3), roughness: .95 });
+const surfaceLoader = new THREE.TextureLoader();
+function applySurface(material, stem, repeatX, repeatY) {
+  for (const [suffix, property] of [['diff', 'map'], ['nor_gl', 'normalMap'], ['rough', 'roughnessMap']]) {
+    surfaceLoader.load(`./assets/textures/${stem}_${suffix}_1k.jpg`, texture => {
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(repeatX, repeatY);
+      texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+      if (property === 'map') texture.colorSpace = THREE.SRGBColorSpace;
+      material[property] = texture;
+      material.needsUpdate = true;
+    }, undefined, error => console.warn(`Could not load ${stem} ${suffix}; using game texture.`, error));
+  }
+  material.normalScale = new THREE.Vector2(.35, .35);
+}
+applySurface(concrete, 'concrete_wall_003', 2, 2);
 const darkMetal = mat(0x253039, .65, .56);
 const rust = new THREE.MeshStandardMaterial({ map: gritTexture([102, 69, 54], 83, 1, 1), metalness: .25, roughness: .88 });
 const glass = mat(0x182629, .48, .3, 0x0b1c1a, .12), alienMat = mat(0x1f3935, .16, .78);
@@ -132,6 +162,7 @@ function rod(parent, start, end, radius, material) {
 const ground = block(earth, 82, .35, 112, 0, -.22, 0, groundMat, false);
 ground.receiveShadow = true;
 const roadMat = new THREE.MeshStandardMaterial({ map: gritTexture([42, 44, 44], 123, 3, 16), roughness: 1 });
+applySurface(roadMat, 'worn_asphalt', 3, 16);
 const road = block(earth, 9.5, .025, 103, 0, .005, 0, roadMat, false);
 road.receiveShadow = true;
 for (let z = -49; z < 51; z += 9) {
@@ -330,6 +361,32 @@ const alienSkin = new THREE.MeshStandardMaterial({
 });
 const alienShell = mat(0x344d49, .2, .65);
 const alienEyes = mat(0x9ed6c4, .1, .42, 0x40c39e, .75);
+let alienTemplate = null;
+function attachDetailedAlien(alien) {
+  if (!alienTemplate || alien.detail) return;
+  const visual = alienTemplate.clone(true);
+  visual.traverse(part => {
+    if (part.isMesh) {
+      part.userData.alien = alien.group;
+      part.castShadow = false;
+    }
+  });
+  alien.group.add(visual);
+  alien.detail = visual;
+  visual.visible = false;
+}
+new GLTFLoader().load('./assets/models/alien-grey-light.glb', gltf => {
+  const visual = gltf.scene;
+  const bounds = new THREE.Box3().setFromObject(visual);
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  if (!Number.isFinite(size.y) || size.y <= 0) return;
+  visual.scale.setScalar(2.1 / size.y);
+  visual.position.set(-center.x * visual.scale.x, -bounds.min.y * visual.scale.y,
+    -center.z * visual.scale.z);
+  alienTemplate = visual;
+  aliens.forEach(attachDetailedAlien);
+}, undefined, error => console.warn('Detailed alien unavailable; using game model.', error));
 function spawnAlien(x, z) {
   const group = new THREE.Group();
   group.position.set(x, 0, z);
@@ -363,7 +420,10 @@ function spawnAlien(x, z) {
   }
   group.traverse((part) => { if (part.isMesh) part.userData.alien = group; });
   earth.add(group);
-  aliens.push({ group, arms, hp: 3, speed: 1.8 + Math.random() * .6, attackAt: 0, phase: Math.random() * 7 });
+  const alien = { group, arms, fallbackParts: [...group.children], detail: null, hp: 3,
+    speed: 1.8 + Math.random() * .6, attackAt: 0, phase: Math.random() * 7 };
+  aliens.push(alien);
+  attachDetailedAlien(alien);
 }
 function canStand(x, z, radius = .58) {
   if (Math.abs(x) > 39 || Math.abs(z) > 53) return false;
@@ -550,7 +610,13 @@ function updateAliens(dt, now) {
   if (now - state.lastSpawn > 7000 && aliens.length < 9) {
     spawnAtEdge(); state.lastSpawn = now;
   }
+  const detailed = new Set(aliens.filter(a => a.detail)
+    .sort((a, b) => a.group.position.distanceToSquared(camera.position) -
+      b.group.position.distanceToSquared(camera.position)).slice(0, 2));
   for (const a of aliens) {
+    const showDetail = detailed.has(a) && a.group.position.distanceTo(camera.position) < 24;
+    if (a.detail) a.detail.visible = showDetail;
+    for (const part of a.fallbackParts) part.visible = !showDetail;
     const p = a.group.position;
     const dx = camera.position.x - p.x, dz = camera.position.z - p.z;
     const dist = Math.hypot(dx, dz);

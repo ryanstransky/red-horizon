@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = __dirname;
-const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript' };
+const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript',
+  '.jpg': 'image/jpeg', '.glb': 'model/gltf-binary', '.txt': 'text/plain' };
 
 http.createServer((request, response) => {
   const pathname = decodeURIComponent(new URL(request.url, 'http://127.0.0.1').pathname);
