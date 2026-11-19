@@ -14,8 +14,8 @@ Open `http://127.0.0.1:8000` in a desktop browser. Node.js is required. Three.js
 
 ## Controls
 
-WASD move, mouse aim, left click fire, R reload, Shift sprint, E interact, M mute audio, Esc pause. Click **Begin Mission** to lock the pointer. If your browser does not support mouse lock, move the cursor to aim and click the game to fire.
+WASD move, mouse aim, click to fire, hold to fire automatic weapons, R reload, Shift sprint, E interact or pick up, 1–5 switch owned weapons, M mute audio, Esc pause. Click **Begin Mission** to lock the pointer. If your browser does not support mouse lock, move the cursor to aim and click the game to fire.
 
 ## Current scope
 
-The Earth level includes a clinic, a fallen signal relay, a crash site, abandoned vehicles, signs, ruined buildings, and three types of aliens. Combat has attack warnings, hit and death reactions, tracers, and synthesized sound. Recovering the third core starts a 120-second rush to the ship. The detailed alien asset has no skeleton or animation clips, so its movement and attack motion currently animate the whole model rather than individual limbs. This remains a playable prototype, not a finished game.
+The Earth level includes a clinic, a fallen signal relay, a crash site, abandoned vehicles, signs, ruined buildings, and three types of aliens. Nearby aliens use a rigged model with walk and run animations, smoother turning, and crowd avoidance. Four weapon caches along the route unlock an assault rifle, shotgun, sniper rifle, and minigun; the player starts with a pistol. Each weapon has its own ammo, fire rate, damage, spread, recoil, tracer, model, and synthesized sound. Recovering the third core starts a 120-second rush to the ship. This remains a playable prototype, not a finished game.

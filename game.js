@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
   hud: $('hud'), overlay: $('overlay'), copy: $('overlay-copy'), start: $('start-button'),
   health: $('health'), healthBar: $('health-bar'), oxygen: $('oxygen'), oxygenBar: $('oxygen-bar'),
-  ammo: $('ammo'), reserve: $('reserve'), objective: $('objective'), progress: $('progress'), guidance: $('guidance'),
+  ammo: $('ammo'), reserve: $('reserve'), weaponName: $('weapon-name'), loadout: $('loadout'),
+  objective: $('objective'), progress: $('progress'), guidance: $('guidance'),
   prompt: $('prompt'), notice: $('notice'), damage: $('damage-flash'),
 };
 const scene = new THREE.Scene();
@@ -393,41 +395,121 @@ function makeCore(x, z, label) {
   return { x, z, label, group: g, crystal, ring, collected: false };
 }
 
-// Astronaut gloves and a compact plasma carbine stay in the first-person view.
+const weaponSpecs = {
+  pistol: {name:'PISTOL',mag:12,reserve:72,rate:330,damage:1.25,pellets:1,spread:.004,
+    reload:1050,range:55,auto:false,color:0xffd29a,travel:72,tip:-.68},
+  assault: {name:'ASSAULT RIFLE',mag:30,reserve:180,rate:125,damage:1.1,pellets:1,spread:.008,
+    reload:1450,range:75,auto:true,color:0x89ffda,travel:45,tip:-1.05},
+  shotgun: {name:'SHOTGUN',mag:6,reserve:42,rate:720,damage:.75,pellets:8,spread:.055,
+    reload:1800,range:28,auto:false,color:0xffa472,travel:38,tip:-.99},
+  sniper: {name:'SNIPER RIFLE',mag:5,reserve:35,rate:900,damage:6,pellets:1,spread:0,
+    reload:2050,range:130,auto:false,color:0x8bddff,travel:22,tip:-1.28},
+  minigun: {name:'MINIGUN',mag:120,reserve:360,rate:78,damage:.62,pellets:1,spread:.018,
+    reload:3000,range:65,auto:true,color:0xffc36d,travel:32,tip:-1.04},
+};
+const weaponOrder = ['pistol','assault','shotgun','sniper','minigun'];
+const weaponPoses = {
+  pistol:{x:.36,y:-.47,z:-.77}, assault:{x:.29,y:-.39,z:-.65},
+  shotgun:{x:.31,y:-.41,z:-.66}, sniper:{x:.34,y:-.43,z:-.72},
+  minigun:{x:.32,y:-.39,z:-.69},
+};
+const inventory = Object.fromEntries(weaponOrder.map(id => [id,{owned:id==='pistol',mag:weaponSpecs[id].mag,
+  reserve:weaponSpecs[id].reserve}]));
+let activeWeapon = 'pistol';
+let firing = false;
 const weapon = new THREE.Group();
 camera.add(weapon); scene.add(camera);
 const suitLight = new THREE.PointLight(0xa9c4bb, 1.75, 11);
-suitLight.position.set(0, -.12, -.35);
-camera.add(suitLight);
-weapon.position.set(.29, -.38, -.62);
+suitLight.position.set(0, -.12, -.35); camera.add(suitLight);
+weapon.position.set(...Object.values(weaponPoses.pistol));
 const suit = mat(0xb7c4bf, .28, .62), glove = mat(0xc5d1c9, .14, .77);
 const grip = mat(0x18252a, .25, .7);
-const housing = new THREE.Mesh(new THREE.CapsuleGeometry(.17, .38, 6, 14), darkMetal);
-housing.rotation.x = Math.PI / 2; housing.position.set(.02, -.07, -.4); weapon.add(housing);
-const shell = block(weapon, .31, .16, .42, .02, -.03, -.35, suit);
-shell.rotation.x = -.06;
-const barrel = rod(weapon, [.02, -.06, -.54], [.02, -.06, -.98], .067, grip);
-for (const z of [-.65, -.83]) {
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(.078, .017, 8, 18), suit);
-  ring.position.set(.02, -.06, z); weapon.add(ring);
-}
-block(weapon, .055, .025, .34, .02, .08, -.36, glowMat, false);
-block(weapon, .08, .23, .16, .04, -.24, -.2, grip);
-rod(weapon, [.02, .12, -.31], [.02, .2, -.47], .021, grip);
 const forearm = cylinder(weapon, .17, .18, .47, .28, -.32, .13, suit);
 forearm.rotation.x = .7;
 sphere(weapon, .16, .26, -.17, -.06, glove);
 sphere(weapon, .12, -.12, -.22, -.32, glove);
-block(weapon, .055, .025, .17, .25, -.13, -.12, darkMetal, false);
-const muzzle = new THREE.PointLight(0x59ffe0, 0, 5);
-muzzle.position.set(.03, -.01, -.96); weapon.add(muzzle);
+const weaponModels = new Map();
+let minigunRotor = null, minigunSpin = 0;
+function buildGunModel(id) {
+  const g = new THREE.Group();
+  const metal = mat(id==='shotgun'?0x584943:id==='sniper'?0x435760:id==='minigun'?0x555450:0x25343a,.55,.57);
+  const accent = mat(weaponSpecs[id].color,.2,.5,weaponSpecs[id].color,.12);
+  const long = id==='sniper'?1.13:id==='pistol'?.46:.9;
+  block(g,id==='minigun'?.4:.29,.18,long*.64,0,-.04,-.37,metal);
+  block(g,.11,.26,.16,.04,-.25,-.2,grip);
+  if (id==='pistol') {
+    block(g,.235,.075,.34,0,.045,-.36,metal);
+    block(g,.13,.018,.2,0,.092,-.36,suit,false);
+    rod(g,[0,-.035,-.53],[0,-.035,-.68],.043,grip);
+  } else if (id==='shotgun') {
+    for (const x of [-.075,.075]) rod(g,[x,-.04,-.49],[x,-.04,-1],.045,grip);
+    block(g,.3,.14,.31,0,-.13,-.68,rust);
+    block(g,.24,.13,.22,0,.08,-.32,metal);
+  } else if (id==='sniper') {
+    rod(g,[0,-.04,-.55],[0,-.04,-1.28],.044,grip);
+    const scope = cylinder(g,.085,.085,.53,0,.17,-.45,grip,12);
+    scope.rotation.x = Math.PI/2;
+    block(g,.16,.24,.2,0,-.25,-.45,metal);
+    rod(g,[-.08,-.12,-.92],[-.23,-.31,-1.02],.025,metal);
+    rod(g,[.08,-.12,-.92],[.23,-.31,-1.02],.025,metal);
+  } else if (id==='minigun') {
+    const rotor = new THREE.Group(); g.add(rotor); minigunRotor=rotor;
+    for (let i=0;i<6;i++) {
+      const a=i*Math.PI/3, x=Math.cos(a)*.115, y=Math.sin(a)*.115-.035;
+      rod(rotor,[x,y,-.48],[x,y,-1.04],.034,grip);
+    }
+    for (const z of [-.55,-.85]) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(.18,.026,8,18),metal);
+      ring.position.set(0,-.035,z); rotor.add(ring);
+    }
+    cylinder(g,.24,.24,.26,.25,-.17,-.35,metal,16).rotation.z=Math.PI/2;
+  } else {
+    rod(g,[0,-.04,-.55],[0,-.04,-1.05],.053,grip);
+    block(g,.25,.1,.4,0,.075,-.46,accent);
+    block(g,.13,.3,.15,0,-.27,-.48,metal);
+    block(g,.19,.11,.18,0,.19,-.4,grip);
+  }
+  block(g,.08,.025,.18,0,.085,-.34,accent,false);
+  return g;
+}
+for (const id of weaponOrder) {
+  const model=buildGunModel(id); model.visible=id==='pistol'; weapon.add(model); weaponModels.set(id,model);
+}
+const muzzle = new THREE.PointLight(0xffd29a,0,5);
+muzzle.position.set(.03,-.02,weaponSpecs.pistol.tip); weapon.add(muzzle);
+const pickupSites = [
+  {id:'assault',x:-8,z:52}, {id:'shotgun',x:-17,z:42},
+  {id:'sniper',x:18,z:-16}, {id:'minigun',x:-12,z:-48},
+];
+const weaponPickups = pickupSites.map(site => {
+  const group=new THREE.Group(); group.position.set(site.x,0,site.z); earth.add(group);
+  cylinder(group,.85,.97,.2,0,.13,0,darkMetal);
+  const display=weaponModels.get(site.id).clone(true);
+  display.scale.setScalar(.75); display.position.set(0,1.1,.28);
+  display.rotation.y=Math.PI/2; group.add(display);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(.78,.045,8,24),
+    new THREE.MeshBasicMaterial({color:weaponSpecs[site.id].color}));
+  ring.rotation.x=Math.PI/2; ring.position.y=.33; group.add(ring);
+  const glow=new THREE.PointLight(weaponSpecs[site.id].color,3,7);
+  glow.position.y=1.2; group.add(glow);
+  const labelCanvas=document.createElement('canvas'); labelCanvas.width=512; labelCanvas.height=96;
+  const context=labelCanvas.getContext('2d');
+  context.fillStyle='rgba(4,20,23,.82)'; context.fillRect(0,0,512,96);
+  context.font='bold 42px sans-serif'; context.textAlign='center';
+  context.fillStyle='#e6fff6'; context.fillText(weaponSpecs[site.id].name,256,62);
+  const label=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(labelCanvas),
+    transparent:true,depthWrite:false}));
+  label.position.y=2.05; label.scale.set(3.3,.62,1); group.add(label);
+  return {...site,group,display,ring,collected:false};
+});
 
 const aliens = [];
 const tracers = [];
+const impacts = [];
 const keys = new Set();
 const raycaster = new THREE.Raycaster();
 const aim = new THREE.Vector2(0, 0);
-const state = { mode: 'menu', health: 100, oxygen: 100, ammo: 30, reserve: 180,
+const state = { mode: 'menu', health: 100, oxygen: 100,
   collected: 0, kills: 0, lastShot: 0, lastSpawn: 0, reloadAt: 0, noticeUntil: 0, fireUntil: 0,
   yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0,
   escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0 };
@@ -470,8 +552,14 @@ function noise(duration, volume = .3) {
   gain.gain.exponentialRampToValueAtTime(.001,t+duration);
   source.connect(gain).connect(audio.master); source.start(t); source.stop(t+duration);
 }
-function sound(kind) {
-  if (kind === 'shot') { tone(520,95,.13,.48); noise(.07,.25); }
+function sound(kind, weaponId = activeWeapon) {
+  if (kind === 'shot') {
+    if (weaponId === 'pistol') { tone(480,120,.12,.42); noise(.065,.18); }
+    else if (weaponId === 'assault') { tone(310,85,.095,.42); noise(.05,.23); }
+    else if (weaponId === 'shotgun') { tone(175,45,.24,.72); noise(.24,.65); }
+    else if (weaponId === 'sniper') { tone(680,50,.34,.68); noise(.19,.6); }
+    else { tone(220,68,.065,.27,'square'); noise(.04,.17); }
+  }
   else if (kind === 'hit') tone(340,150,.09,.24,'square');
   else if (kind === 'kill') { tone(220,55,.28,.35); noise(.18,.18); }
   else if (kind === 'damage') { tone(110,42,.35,.8); noise(.2,.25); }
@@ -493,9 +581,10 @@ const alienKinds = {
   brute: {scale: 1.4, speed: 1.3, hp: 7, damage: 18, range: 2.2, tint: 0xffb4a0},
 };
 let alienTemplate = null;
+let alienClips = [];
 function attachDetailedAlien(alien) {
   if (!alienTemplate || alien.detail) return;
-  const visual = alienTemplate.clone(true);
+  const visual = cloneSkinned(alienTemplate);
   const materials = [];
   visual.traverse(part => {
     if (part.isMesh) {
@@ -512,8 +601,14 @@ function attachDetailedAlien(alien) {
   alien.detailBaseY = visual.position.y;
   alien.detailBaseZ = visual.position.z;
   visual.visible = false;
+  alien.mixer = new THREE.AnimationMixer(visual);
+  alien.walkAction = alien.mixer.clipAction(alienClips.find(clip => /walk/i.test(clip.name)));
+  alien.runAction = alien.mixer.clipAction(alienClips.find(clip => /run/i.test(clip.name)));
+  alien.walkAction.play(); alien.runAction.play();
+  alien.walkAction.setEffectiveWeight(alien.kind === 'brute' ? 1 : .35);
+  alien.runAction.setEffectiveWeight(alien.kind === 'brute' ? 0 : .65);
 }
-new GLTFLoader().load('./assets/models/alien-grey-light.glb', gltf => {
+new GLTFLoader().load('./assets/models/alien-grey-rigged.glb', gltf => {
   const visual = gltf.scene;
   const bounds = new THREE.Box3().setFromObject(visual);
   const size = bounds.getSize(new THREE.Vector3());
@@ -523,6 +618,7 @@ new GLTFLoader().load('./assets/models/alien-grey-light.glb', gltf => {
   visual.position.set(-center.x * visual.scale.x, -bounds.min.y * visual.scale.y,
     -center.z * visual.scale.z);
   alienTemplate = visual;
+  alienClips = gltf.animations;
   aliens.forEach(attachDetailedAlien);
 }, undefined, error => console.warn('Detailed alien unavailable; using game model.', error));
 function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() < .45 ? 'runner' : 'stalker') {
@@ -562,7 +658,8 @@ function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() <
   earth.add(group);
   const alien = { group, arms, fallbackParts: [...group.children], detail: null,
     kind, hp: profile.hp, speed: profile.speed, damage: profile.damage, range: profile.range,
-    attackAt: 0, windupUntil: 0, hitUntil: 0, dyingAt: 0, phase: Math.random() * 7 };
+    attackAt: 0, windupUntil: 0, hitUntil: 0, dyingAt: 0, phase: Math.random() * 7,
+    heading: Math.random()*Math.PI*2, velocity: new THREE.Vector2() };
   aliens.push(alien);
   attachDetailedAlien(alien);
 }
@@ -584,8 +681,11 @@ function updateHud() {
   ui.healthBar.style.width = state.health + '%';
   ui.oxygen.textContent = Math.ceil(state.oxygen) + '%';
   ui.oxygenBar.style.width = state.oxygen + '%';
-  ui.ammo.textContent = state.ammo;
-  ui.reserve.textContent = state.reserve;
+  ui.ammo.textContent = inventory[activeWeapon].mag;
+  ui.reserve.textContent = inventory[activeWeapon].reserve;
+  ui.weaponName.textContent = weaponSpecs[activeWeapon].name;
+  ui.loadout.textContent = `SLOT ${weaponOrder.indexOf(activeWeapon)+1} · `+
+    `${weaponOrder.filter(id => inventory[id].owned).length}/5 UNLOCKED`;
   ui.progress.textContent = state.collected === 3
     ? `${Math.ceil(state.escapeLeft)}s UNTIL LAUNCH` : state.collected + ' / 3 CORES';
   ui.progress.classList.toggle('urgent',state.collected===3);
@@ -604,6 +704,20 @@ function updateHud() {
     ui.guidance.textContent = `${next.label}: ${distance}m ${direction}`;
   }
 }
+function selectWeapon(id, announce = true) {
+  if (!inventory[id]?.owned || activeWeapon === id && announce) return;
+  activeWeapon = id;
+  const pose=weaponPoses[id];
+  weapon.position.set(pose.x,pose.y,pose.z);
+  state.reloadAt = 0;
+  state.reloadingWeapon = null;
+  state.lastShot = 0;
+  for (const [key,model] of weaponModels) model.visible = key === id;
+  muzzle.color.setHex(weaponSpecs[id].color);
+  muzzle.position.z = weaponSpecs[id].tip;
+  if (announce) { sound('pickup'); notice(`${weaponSpecs[id].name} EQUIPPED`,1.5); }
+  updateHud();
+}
 function notice(message, seconds = 2.2) {
   ui.notice.textContent = message;
   ui.notice.classList.remove('hidden');
@@ -615,7 +729,7 @@ function reset() {
   for (const c of cores) earth.remove(c.group);
   cores = coreSites.map(([x, z],i) => makeCore(x, z,
     ['CLINIC CORE','RELAY CORE','CRASH CORE'][i]));
-  Object.assign(state, { mode: 'playing', health: 100, oxygen: 100, ammo: 30, reserve: 180,
+  Object.assign(state, { mode: 'playing', health: 100, oxygen: 100,
     collected: 0, kills: 0, lastShot: 0, lastSpawn: performance.now(), reloadAt: 0,
     yaw: 0, pitch: 0, elapsed: 0, invulnerableUntil: 0, marsAt: 0,
     escapeLeft: 0, lastSiren: 0, launchStart: 0, hitUntil: 0 });
@@ -631,6 +745,17 @@ function reset() {
   camera.position.set(0, 1.72, 79);
   camera.rotation.set(0, 0, 0);
   keys.clear();
+  firing = false;
+  for (const id of weaponOrder) {
+    inventory[id].owned = id === 'pistol';
+    inventory[id].mag = weaponSpecs[id].mag;
+    inventory[id].reserve = weaponSpecs[id].reserve;
+  }
+  for (const pickup of weaponPickups) {
+    pickup.collected = false; pickup.group.visible = true;
+  }
+  activeWeapon = 'pistol';
+  selectWeapon('pistol',false);
   for (let i = 0; i < 3; i++) spawnAtEdge(i === 0 ? 'runner' : 'stalker');
   spawnAlien(-21,36,'runner');
   spawnAlien(35,-19,'brute');
@@ -671,51 +796,66 @@ function endGame(win, reason = '') {
   }
 }
 function reload() {
-  if (state.mode !== 'playing' || state.reloadAt || state.ammo >= 30 || state.reserve <= 0) return;
-  state.reloadAt = performance.now() + 1250;
+  const ammo = inventory[activeWeapon], spec = weaponSpecs[activeWeapon];
+  if (state.mode !== 'playing' || state.reloadAt || ammo.mag >= spec.mag || ammo.reserve <= 0) return;
+  state.reloadAt = performance.now() + spec.reload;
+  state.reloadingWeapon = activeWeapon;
   sound('reload');
   notice('RELOADING', 1.1);
 }
 function shoot() {
   const now = performance.now();
-  if (state.mode !== 'playing' || state.reloadAt || now - state.lastShot < 145) return;
-  if (state.ammo <= 0) { reload(); return; }
+  const id = activeWeapon, spec = weaponSpecs[id], ammo = inventory[id];
+  if (state.mode !== 'playing' || state.reloadAt || now - state.lastShot < spec.rate) return;
+  if (ammo.mag <= 0) { reload(); return; }
   state.lastShot = now;
-  state.ammo--;
-  state.fireUntil = now + 75;
-  sound('shot');
-  muzzle.intensity = 13;
-  weapon.position.z = -.53;
-  raycaster.setFromCamera(aim, camera);
-  raycaster.far = 60;
+  ammo.mag--;
+  state.fireUntil = now + (id==='minigun'?48:id==='sniper'?140:85);
+  sound('shot',id);
+  muzzle.intensity = id==='shotgun'||id==='sniper'?18:11;
+  weapon.position.z = weaponPoses[id].z + (id==='sniper'?.18:id==='shotgun'?.16:id==='minigun'?.06:.09);
   const objects = [...aliens.flatMap(a => a.dyingAt ? [] :
     a.detail?.visible ? [a.detail] : a.fallbackParts.filter(part => part.visible)),
     ...obstacles.map(o => o.mesh)];
-  const hit = raycaster.intersectObjects(objects, true)[0];
-  const start = weapon.localToWorld(new THREE.Vector3(.03,-.01,-.96));
-  const end = hit?.point || camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(55).add(camera.position);
-  const tracer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([start,end]),
-    new THREE.LineBasicMaterial({color:0x7cffe1,transparent:true,opacity:.65,depthWrite:false}));
-  scene.add(tracer); tracers.push({mesh:tracer,until:now+70});
-  if (hit?.object.userData.alien) {
-    const alien = aliens.find(a => a.group === hit.object.userData.alien);
-    if (alien && !alien.dyingAt) {
-      alien.hp -= hit.object.geometry?.type === 'SphereGeometry' ? 2 : 1;
-      alien.hitUntil = now + 170;
-      state.hitUntil = now + 150;
-      $('crosshair').classList.add('hit');
-      sound('hit');
-      if (alien.hp <= 0) {
-        alien.dyingAt = now;
-        sound('kill');
-        state.kills++;
-        if (state.kills % 5 === 0) {
-          state.reserve = Math.min(240, state.reserve + 30);
-          notice('AMMO RECOVERED FROM FIELD CACHE');
+  for (let pellet=0; pellet<spec.pellets; pellet++) {
+    const deviation = spec.spread;
+    aim.set((Math.random()-.5)*deviation*2,(Math.random()-.5)*deviation*2);
+    raycaster.setFromCamera(aim,camera);
+    raycaster.far=spec.range;
+    const hit=raycaster.intersectObjects(objects,true)[0];
+    const start=weapon.localToWorld(new THREE.Vector3(.03,-.02,spec.tip));
+    const end=hit?.point.clone() || raycaster.ray.direction.clone().multiplyScalar(spec.range).add(raycaster.ray.origin);
+    const tracer=new THREE.Line(new THREE.BufferGeometry().setFromPoints([start,start.clone()]),
+      new THREE.LineBasicMaterial({color:spec.color,transparent:true,
+        opacity:id==='sniper'?.96:id==='shotgun'?.42:.73,depthWrite:false}));
+    scene.add(tracer);
+    tracers.push({mesh:tracer,start,end,born:now,travel:spec.travel,until:now+spec.travel+95,
+      opacity:tracer.material.opacity});
+    if (hit) {
+      const spark=new THREE.Mesh(new THREE.SphereGeometry(id==='shotgun'?.045:.075,6,6),
+        new THREE.MeshBasicMaterial({color:hit.object.userData.alien?0xff5548:spec.color}));
+      spark.position.copy(hit.point); scene.add(spark); impacts.push({mesh:spark,until:now+140});
+    }
+    if (hit?.object.userData.alien) {
+      const alien=aliens.find(a=>a.group===hit.object.userData.alien);
+      if (alien && !alien.dyingAt) {
+        const headshot=hit.object.geometry?.type==='SphereGeometry';
+        alien.hp-=spec.damage*(headshot?1.5:1);
+        alien.hitUntil=now+170;
+        state.hitUntil=now+150;
+        $('crosshair').classList.add('hit');
+        sound('hit');
+        if (alien.hp<=0) {
+          alien.dyingAt=now; sound('kill'); state.kills++;
+          if (state.kills%5===0) {
+            ammo.reserve=Math.min(spec.reserve*2,ammo.reserve+spec.mag);
+            notice('AMMO RECOVERED FROM FIELD CACHE');
+          }
         }
       }
     }
   }
+  aim.set(0,0);
   updateHud();
 }
 function interact() {
@@ -734,6 +874,16 @@ function interact() {
         notice('POWER CORE SECURED // OXYGEN REFILLED', 3);
         spawnAtEdge(state.collected===2?'brute':'runner');
       }
+      updateHud(); return;
+    }
+  }
+  for (const pickup of weaponPickups) {
+    if (!pickup.collected && Math.hypot(camera.position.x-pickup.x,camera.position.z-pickup.z)<3.4) {
+      pickup.collected=true; pickup.group.visible=false;
+      inventory[pickup.id].owned=true;
+      selectWeapon(pickup.id,false);
+      sound('pickup');
+      notice(`${weaponSpecs[pickup.id].name} EQUIPPED // USE 1–5 TO SWITCH`,3);
       updateHud(); return;
     }
   }
@@ -811,23 +961,48 @@ function updateAliens(dt, now) {
     const p = a.group.position;
     const dx = camera.position.x - p.x, dz = camera.position.z - p.z;
     const dist = Math.hypot(dx, dz);
+    const desired = new THREE.Vector2();
     if (dist < 48 && dist > a.range*.78 && !a.windupUntil) {
-      const step = Math.min(a.speed * dt, dist - a.range*.78);
-      const nx = p.x + dx / dist * step, nz = p.z + dz / dist * step;
-      if (canStand(nx, nz, .45)) { p.x = nx; p.z = nz; }
-      else if (canStand(nx, p.z, .45)) p.x = nx;
-      else if (canStand(p.x, nz, .45)) p.z = nz;
+      desired.set(dx/dist,dz/dist);
+      for (const other of aliens) if (other!==a && !other.dyingAt) {
+        const sx=p.x-other.group.position.x, sz=p.z-other.group.position.z;
+        const gap=Math.hypot(sx,sz);
+        if (gap>.01 && gap<2.3) desired.add(new THREE.Vector2(sx,sz)
+          .multiplyScalar((2.3-gap)/(gap*2.3)));
+      }
+      if (a.kind==='runner') {
+        const weave=Math.sin(now*.0018+a.phase)*.18;
+        desired.add(new THREE.Vector2(-dz/dist,dx/dist).multiplyScalar(weave));
+      }
+      desired.normalize().multiplyScalar(a.speed);
     }
-    a.group.lookAt(camera.position.x, 0, camera.position.z);
+    a.velocity.lerp(desired,Math.min(1,dt*(a.kind==='brute'?2:3.5)));
+    const nx=p.x+a.velocity.x*dt, nz=p.z+a.velocity.y*dt;
+    if (canStand(nx,nz,.45)) {p.x=nx;p.z=nz;}
+    else if (canStand(nx,p.z,.45)) {p.x=nx;a.velocity.y=0;}
+    else if (canStand(p.x,nz,.45)) {p.z=nz;a.velocity.x=0;}
+    else a.velocity.set(0,0);
+    const targetHeading=Math.atan2(camera.position.x-p.x,camera.position.z-p.z);
+    const headingDelta=Math.atan2(Math.sin(targetHeading-a.heading),Math.cos(targetHeading-a.heading));
+    a.heading+=THREE.MathUtils.clamp(headingDelta,-dt*3.3,dt*3.3);
+    a.group.rotation.y=a.heading;
     const stride = Math.sin(now * .011 * a.speed + a.phase);
-    a.group.position.y = Math.abs(stride) * .065;
+    a.group.position.y = Math.abs(stride) * .022;
     a.group.scale.setScalar(alienKinds[a.kind].scale * (now<a.hitUntil?1.1:1));
     a.arms[0].rotation.x = stride * .34 - (a.windupUntil ? .6 : 0);
     a.arms[1].rotation.x = -stride * .34 - (a.windupUntil ? .6 : 0);
     if (a.detail) {
-      a.detail.position.y = a.detailBaseY + Math.abs(stride)*.055;
+      a.detail.position.y = a.detailBaseY + Math.abs(stride)*.02;
       a.detail.position.z = a.detailBaseZ + (a.windupUntil ? .24 : 0);
-      a.detail.rotation.z = stride*.035 + (a.windupUntil ? .12 : 0);
+      a.detail.rotation.z = stride*.023 + (a.windupUntil ? .09 : 0);
+      a.detail.rotation.x = a.windupUntil ? -.17 : 0;
+      if (showDetail && a.mixer) {
+        const runWeight=a.kind==='runner' ? .92 : a.kind==='brute' ? .12 : .55;
+        a.runAction.setEffectiveWeight(runWeight);
+        a.walkAction.setEffectiveWeight(1-runWeight);
+        a.mixer.timeScale = a.windupUntil ? .25 : Math.max(.2,a.velocity.length()/a.speed);
+        a.mixer.update(dt);
+      }
       for (const {material,emissive} of a.materials) {
         material.emissive.copy(emissive);
         if (now < a.hitUntil) material.emissive.setHex(0xff3520);
@@ -864,6 +1039,11 @@ function updatePrompt() {
       label = '<b>E</b> RECOVER POWER CORE'; break;
     }
   }
+  if (!label) for (const pickup of weaponPickups) {
+    if (!pickup.collected && Math.hypot(camera.position.x-pickup.x,camera.position.z-pickup.z)<3.4) {
+      label=`<b>E</b> TAKE ${weaponSpecs[pickup.id].name}`; break;
+    }
+  }
   if (!label && Math.hypot(camera.position.x, camera.position.z + 78) < 6)
     label = state.collected === 3 ? '<b>E</b> BOARD SHIP AND LAUNCH' : 'SHIP NEEDS ' + (3 - state.collected) + ' POWER CORES';
   ui.prompt.innerHTML = label;
@@ -875,7 +1055,10 @@ const worldUp = new THREE.Vector3(0, 1, 0);
 function updateMovement(dt) {
   const forward = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
   const strafe = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
-  if (!forward && !strafe) return;
+  if (!forward && !strafe) {
+    weapon.position.y += (weaponPoses[activeWeapon].y-weapon.position.y)*Math.min(1,dt*10);
+    return;
+  }
   const length = Math.hypot(forward, strafe);
   const speed = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 9 : 6;
   // Use the camera's actual heading, projected onto the ground plane.
@@ -888,7 +1071,7 @@ function updateMovement(dt) {
   const x = camera.position.x + dx, z = camera.position.z + dz;
   if (canStand(x, camera.position.z)) camera.position.x = x;
   if (canStand(camera.position.x, z)) camera.position.z = z;
-  weapon.position.y = -.33 + Math.sin(state.elapsed * (speed * 1.3)) * .012;
+  weapon.position.y = weaponPoses[activeWeapon].y + Math.sin(state.elapsed * (speed * 1.3)) * .012;
 }
 function updateAtmosphere(dt, now) {
   if (!earth.visible) return;
@@ -931,6 +1114,11 @@ function frame(now) {
     state.elapsed += dt;
     updateMovement(dt);
     updateAliens(dt, now);
+    if (firing && weaponSpecs[activeWeapon].auto) shoot();
+    for (const pickup of weaponPickups) if (!pickup.collected) {
+      pickup.display.rotation.y += dt*.7;
+      pickup.ring.rotation.z += dt*.5;
+    }
     if (state.collected === 3) {
       state.escapeLeft = Math.max(0,state.escapeLeft-dt);
       beacon.intensity = 7 + Math.sin(now*.012)*4;
@@ -944,8 +1132,11 @@ function frame(now) {
       c.crystal.position.y = 1.25 + Math.sin(now * .002) * .12;
     }
     if (state.reloadAt && now >= state.reloadAt) {
-      const amount = Math.min(30 - state.ammo, state.reserve);
-      state.ammo += amount; state.reserve -= amount; state.reloadAt = 0; updateHud();
+      const id=state.reloadingWeapon;
+      const ammo=inventory[id], spec=weaponSpecs[id];
+      const amount=Math.min(spec.mag-ammo.mag,ammo.reserve);
+      ammo.mag+=amount; ammo.reserve-=amount;
+      state.reloadAt=0; state.reloadingWeapon=null; updateHud();
     }
     state.oxygen = Math.max(0, state.oxygen - dt * .14);
     if (state.oxygen === 0) {
@@ -967,6 +1158,8 @@ function frame(now) {
   }
   if (state.noticeUntil && now >= state.noticeUntil) { ui.notice.classList.add('hidden'); state.noticeUntil = 0; }
   if (now > state.fireUntil) muzzle.intensity = 0;
+  minigunSpin += ((activeWeapon==='minigun' && firing ? 18 : 0)-minigunSpin)*Math.min(1,dt*5);
+  if (minigunRotor) minigunRotor.rotation.z += minigunSpin*dt;
   if (state.hitUntil && now > state.hitUntil) {
     $('crosshair').classList.remove('hit'); state.hitUntil=0;
   }
@@ -974,7 +1167,18 @@ function frame(now) {
     const line=tracers[i].mesh; scene.remove(line);
     line.geometry.dispose(); line.material.dispose(); tracers.splice(i,1);
   }
-  weapon.position.z += (-.62 - weapon.position.z) * Math.min(1, dt * 14);
+  for (const tracer of tracers) {
+    const t=Math.min(1,(now-tracer.born)/tracer.travel);
+    const tip=tracer.start.clone().lerp(tracer.end,t);
+    tracer.mesh.geometry.attributes.position.setXYZ(1,tip.x,tip.y,tip.z);
+    tracer.mesh.geometry.attributes.position.needsUpdate=true;
+    tracer.mesh.material.opacity=tracer.opacity*Math.min(1,(tracer.until-now)/95);
+  }
+  for (let i=impacts.length-1;i>=0;i--) if (now>impacts[i].until) {
+    const spark=impacts[i].mesh; scene.remove(spark);
+    spark.geometry.dispose(); spark.material.dispose(); impacts.splice(i,1);
+  }
+  weapon.position.z += (weaponPoses[activeWeapon].z - weapon.position.z) * Math.min(1, dt * 14);
   renderer.render(scene, camera);
 }
 requestAnimationFrame(frame);
@@ -982,10 +1186,12 @@ requestAnimationFrame(frame);
 ui.start.addEventListener('click', resume);
 renderer.domElement.addEventListener('click', () => {
   if (state.mode === 'playing' && document.pointerLockElement !== renderer.domElement) requestMouseLock();
-  shoot();
 });
 document.addEventListener('pointerlockchange', () => {
-  if (document.pointerLockElement !== renderer.domElement && state.mode === 'playing') pause();
+  if (document.pointerLockElement !== renderer.domElement) {
+    keys.clear(); firing=false;
+    if (state.mode === 'playing') pause();
+  }
 });
 document.addEventListener('mousemove', (event) => {
   if (state.mode !== 'playing') return;
@@ -994,10 +1200,13 @@ document.addEventListener('mousemove', (event) => {
   camera.rotation.set(state.pitch, state.yaw, 0);
 });
 document.addEventListener('keydown', (event) => {
+  if (/^(Key[WASD]|Arrow(Up|Down|Left|Right)|Digit[1-5]|Shift(Left|Right))$/.test(event.code))
+    event.preventDefault();
   keys.add(event.code);
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
   if (event.code === 'KeyR') reload();
   if (event.code === 'KeyE') interact();
+  if (/^Digit[1-5]$/.test(event.code)) selectWeapon(weaponOrder[Number(event.code.slice(-1))-1]);
   if (event.code === 'KeyM') {
     audio.muted = !audio.muted;
     if (audio.master) audio.master.gain.value = audio.muted ? 0 : .18;
@@ -1005,7 +1214,14 @@ document.addEventListener('keydown', (event) => {
   }
 });
 document.addEventListener('keyup', (event) => keys.delete(event.code));
-document.addEventListener('mousedown', (event) => { if (event.button === 0 && event.target === renderer.domElement) shoot(); });
+document.addEventListener('mousedown', (event) => {
+  if (event.button===0 && event.target===renderer.domElement) { firing=true; shoot(); }
+});
+document.addEventListener('mouseup', (event) => { if (event.button===0) firing=false; });
+window.addEventListener('blur', () => { keys.clear(); firing=false; if (state.mode==='playing') pause(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { keys.clear(); firing=false; if (state.mode==='playing') pause(); }
+});
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
