@@ -1188,8 +1188,12 @@ function reset() {
   beacon.color.setHex(0xff9b65);
   clinicAlarm.intensity=0;
   weapon.visible = true;
+  $('arrival-caption').classList.add('hidden');
   beacon.intensity = 7;
   mars.visible = false; earth.visible = true;
+  ui.overlay.classList.remove('won');
+  ui.overlay.querySelector('.eyebrow').textContent='AN ORIGINAL FIRST-PERSON SURVIVAL GAME';
+  ui.overlay.querySelector('h1').innerHTML='RED <span>HORIZON</span>';
   scene.background.setHex(0x111a1c); scene.fog.color.setHex(0x263135);
   scene.fog.density = .013;
   sun.color.setHex(0xb7a493); sun.intensity = 1.65;
@@ -1248,9 +1252,13 @@ function endGame(win, reason = '') {
   state.mode = win ? 'won' : 'dead';
   aiming=false; aimHeld=false;
   ui.hud.classList.add('hidden');
+  $('arrival-caption').classList.add('hidden');
   ui.overlay.classList.remove('hidden');
+  ui.overlay.classList.toggle('won',win);
   if (win) {
-    ui.copy.textContent = 'The ship reached Mars. Beyond the red dunes, the lights of the last human colony are still on. Your crew made it home.';
+    ui.overlay.querySelector('.eyebrow').textContent='MISSION COMPLETE // MARS ARRIVAL';
+    ui.overlay.querySelector('h1').innerHTML='ARES <span>COLONY</span>';
+    ui.copy.textContent = 'You landed at Ares Colony. The habitat doors are open, the lights are on, and humanity has another place to call home.';
     ui.start.innerHTML = 'PLAY AGAIN <span>→</span>';
   } else {
     ui.copy.textContent = reason || 'Your suit failed before you could escape Earth. The ship is still waiting at the launch site.';
@@ -1409,38 +1417,143 @@ function launch() {
   state.launchStart = performance.now();
   state.marsAt = state.launchStart + 3600;
 }
+let marsDust = null;
+let marsDustPositions = null;
+const MARS_ARRIVAL_SECONDS = 9;
 function buildMars() {
-  const soil = mat(0xa76349);
-  block(mars, 160, .35, 160, 0, -.25, 0, soil, false);
-  const domeMat = new THREE.MeshStandardMaterial({ color: 0xc2d9d4, metalness: .2, roughness: .4, transparent: true, opacity: .72 });
-  for (const [x, z, r] of [[-14, -18, 6], [4, -24, 9], [20, -15, 5]]) {
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), domeMat);
-    dome.position.set(x, 0, z); mars.add(dome);
-    cylinder(mars, r, r, .7, x, .35, z, darkMetal, 24);
-    const lamp = new THREE.PointLight(0xb4f7e9, 5, r * 3);
-    lamp.position.set(x, 3.5, z); mars.add(lamp);
+  const soil = new THREE.MeshStandardMaterial({map:gritTexture([132,72,55],508,7,7),roughness:1});
+  const rockMat = mat(0x744039,0,.95), ridgeMat=mat(0x8c4a39,0,1);
+  const frameMat=mat(0x38454b,.63,.5), paleMat=mat(0xa9bbb8,.42,.65);
+  const windowMat=mat(0x77b9af,.1,.43,0x4ae5be,.75);
+  const amber=mat(0xffbd80,.12,.39,0xff873f,.9);
+  const ground=block(mars,180,.4,180,0,-.38,0,soil,false);
+  ground.receiveShadow=true;
+  // Low ridges frame the colony while the approach and landing area stay clear.
+  for(let i=0;i<17;i++) {
+    const x=-88+i*11, z=-53-(i%3)*7;
+    const ridge=new THREE.Mesh(new THREE.DodecahedronGeometry(6+(i*7)%8,1),ridgeMat);
+    ridge.position.set(x,1,z); ridge.scale.set(1.3,.5,1.2); mars.add(ridge);
   }
-  for (let i = 0; i < 38; i++) {
-    const x = (i * 41 % 140) - 70, z = (i * 67 % 115) - 62;
-    if (Math.abs(x) < 28 && z < -5) continue;
-    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(.4 + i % 4 * .35, 0), soil);
-    rock.position.set(x, .15, z); rock.scale.y = .5; mars.add(rock);
+  for(let i=0;i<9;i++) {
+    const x=(i%2?-1:1)*(37+i*6), z=-30+i*9;
+    const dune=new THREE.Mesh(new THREE.SphereGeometry(7+i%3*2,18,8),soil);
+    dune.scale.set(1.9,.16,1.1); dune.position.set(x,.04,z); mars.add(dune);
   }
-  const earthInSky = sphere(mars, 1.3, -40, 31, -73, mat(0x8fd3de, 0, 1, 0x387fa3, .45), 20);
+  const colony=[[-16,-20,6],[5,-26,9],[22,-17,5]];
+  for(const [x,z,r] of colony) {
+    cylinder(mars,r+.7,r+.7,.45,x,.15,z,frameMat,32);
+    cylinder(mars,r-.3,r-.3,.08,x,.44,z,paleMat,32);
+    for(let j=0;j<4;j++) {
+      const a=j*Math.PI/2;
+      const module=block(mars,r*.37,1.7,r*.42,x+Math.cos(a)*r*.38,1.35,z+Math.sin(a)*r*.38,paleMat);
+      module.rotation.y=a;
+      block(mars,r*.21,.45,.035,module.position.x,1.75,module.position.z+r*.23,windowMat,false);
+    }
+    const dome=new THREE.Mesh(new THREE.SphereGeometry(r,32,18,0,Math.PI*2,0,Math.PI/2),
+      new THREE.MeshPhysicalMaterial({color:0xb6d0ca,metalness:.05,roughness:.16,transparent:true,
+        opacity:.23,side:THREE.DoubleSide,depthWrite:false}));
+    dome.position.set(x,.5,z); mars.add(dome);
+    const baseRing=new THREE.Mesh(new THREE.TorusGeometry(r,.14,8,48),amber);
+    baseRing.rotation.x=Math.PI/2; baseRing.position.set(x,.54,z); mars.add(baseRing);
+    for(let j=0;j<8;j++) {
+      const a=j*Math.PI/4;
+      rod(mars,[x+Math.cos(a)*r,.5,z+Math.sin(a)*r],
+        [x+Math.cos(a)*r*.72,r*.72,z+Math.sin(a)*r*.72],.047,frameMat);
+    }
+    const lamp=new THREE.PointLight(0x9eeedc,3,r*2.4);
+    lamp.position.set(x,2.5,z); mars.add(lamp);
+  }
+  // Lit access corridors make the three habitats read as one settlement.
+  for(const [ax,az,bx,bz] of [[-10,-20,-4,-24],[14,-23,18,-20]]) {
+    const midX=(ax+bx)/2, midZ=(az+bz)/2, len=Math.hypot(bx-ax,bz-az);
+    const passage=block(mars,2,2,len,midX,1.45,midZ,frameMat);
+    passage.rotation.y=Math.atan2(bx-ax,bz-az);
+    const strip=block(mars,.18,.05,len,midX,2.48,midZ,amber,false);
+    strip.rotation.y=passage.rotation.y;
+  }
+  // Approach road and marked pad give the arriving ship a clear destination.
+  block(mars,7,.09,26,-8,.02,2,frameMat,false);
+  for(let z=-10;z<17;z+=3) block(mars,.13,.02,1.2,-8,.08,z,amber,false);
+  cylinder(mars,7.8,7.8,.25,-8,.14,17,frameMat,40);
+  const padRing=new THREE.Mesh(new THREE.TorusGeometry(6.6,.16,8,48),amber);
+  padRing.rotation.x=Math.PI/2; padRing.position.set(-8,.29,17); mars.add(padRing);
+  for(const [x,z] of [[-14,11],[-2,11],[-14,23],[-2,23]]) {
+    cylinder(mars,.18,.3,2.4,x,1.35,z,frameMat,10);
+    sphere(mars,.23,x,2.63,z,amber,12);
+    const light=new THREE.PointLight(0xffa769,2.2,10);light.position.set(x,2.6,z);mars.add(light);
+  }
+  const lander=new THREE.Group();lander.position.set(-8,.32,17);mars.add(lander);
+  cylinder(lander,1.65,2.25,2.7,0,2.85,0,paleMat,20);
+  const cockpit=new THREE.Mesh(new THREE.SphereGeometry(1.55,24,14,0,Math.PI*2,0,Math.PI/2),
+    mat(0x31535c,.3,.2,0x103b45,.2));
+  cockpit.position.y=4.25;lander.add(cockpit);
+  cylinder(lander,1.7,1.7,.22,0,4.24,0,frameMat,20);
+  cylinder(lander,.7,1.2,1.4,0,1,0,frameMat,16);
+  for(let i=0;i<4;i++) {
+    const a=i*Math.PI/2,x=Math.cos(a),z=Math.sin(a);
+    rod(lander,[x*1.6,3.5,z*1.6],[x*3,.45,z*3],.11,frameMat);
+    block(lander,.9,.16,.9,x*3,.3,z*3,paleMat);
+    const fin=block(lander,.18,1.4,1.3,x*1.8,2.5,z*1.8,frameMat);
+    fin.rotation.y=a;
+  }
+  for(let i=0;i<6;i++) {
+    const a=i*Math.PI/3;
+    const port=sphere(lander,.18,Math.cos(a)*1.68,3.2,Math.sin(a)*1.68,windowMat,10);
+    port.scale.set(.55,.75,.55);
+  }
+  const hullMark=block(lander,.65,.16,.025,0,2.8,2.02,amber,false);
+  hullMark.material.emissiveIntensity=.5;
+  for(const [x,z] of [[-29,-12],[32,-13]]) {
+    const post=cylinder(mars,.12,.24,3.1,x,1.55,z,frameMat,10);
+    for(const side of [-1,1]) {
+      const panel=block(mars,3.8,.08,1.8,x+side*2.3,2.1,z,mat(0x234752,.25,.28));
+      panel.rotation.z=side*.14;
+      for(let j=0;j<3;j++) block(mars,.045,.025,1.82,x+side*2.3+(j-1)*1.1,2.17,z,paleMat,false);
+    }
+  }
+  cylinder(mars,.2,.4,9,30,4.5,-34,frameMat,12);
+  for(const h of [5.5,7.3]) {
+    const dish=new THREE.Mesh(new THREE.TorusGeometry(.9,.08,8,24),paleMat);
+    dish.position.set(30,h,-34);dish.rotation.x=.45;mars.add(dish);
+  }
+  sphere(mars,.3,30,9.2,-34,amber,12);
+  for(let i=0;i<85;i++) {
+    const x=((i*41)%166)-83,z=((i*67)%155)-77;
+    if(Math.abs(x)<29 && z>-35 && z<32) continue;
+    const rock=new THREE.Mesh(new THREE.DodecahedronGeometry(.25+i%5*.17,0),i%3?soil:rockMat);
+    rock.position.set(x,.06,z);rock.scale.set(1.4,.5,.9);mars.add(rock);
+  }
+  const earthInSky = sphere(mars, 1.4, -47, 38, -72, mat(0x8fd3de, 0, 1, 0x387fa3, .45), 24);
   earthInSky.material.fog = false;
+  const dustCount=220;
+  marsDustPositions=new Float32Array(dustCount*3);
+  for(let i=0;i<dustCount;i++) {
+    marsDustPositions[i*3]=(i*73%110)-55;
+    marsDustPositions[i*3+1]=.35+(i*19%30)*.16;
+    marsDustPositions[i*3+2]=(i*47%100)-45;
+  }
+  const dustGeometry=new THREE.BufferGeometry();
+  dustGeometry.setAttribute('position',new THREE.BufferAttribute(marsDustPositions,3));
+  marsDust=new THREE.Points(dustGeometry,new THREE.PointsMaterial({color:0xffc095,size:.1,
+    transparent:true,opacity:.47,depthWrite:false}));mars.add(marsDust);
 }
 buildMars();
 function arriveMars() {
   earth.visible = false; mars.visible = true;
-  scene.background.setHex(0x963f35);
-  scene.fog.color.setHex(0xaa6350); scene.fog.density = .009;
-  sun.color.setHex(0xffd1a5); sun.intensity = 3;
-  renderer.toneMappingExposure = 1.2;
-  camera.position.set(0, 2.2, 25);
-  camera.rotation.set(-.13, 0, 0);
+  weapon.visible=false;
+  ui.hud.classList.add('hidden');
+  ui.overlay.classList.add('hidden');
+  scene.background.setHex(0x6e4544);
+  scene.fog.color.setHex(0x985c4d); scene.fog.density = .007;
+  sun.color.setHex(0xffd5a3); sun.intensity = 2.8;
+  renderer.toneMappingExposure = 1.18;
+  camera.position.set(7,13,57);
+  camera.lookAt(0,3,-24);
   state.mode = 'arriving';
-  state.marsAt = performance.now() + 4000;
-  notice('MARS COLONY // HUMAN SIGNAL CONFIRMED', 4);
+  state.arrivalStart=performance.now();
+  state.marsAt = state.arrivalStart + MARS_ARRIVAL_SECONDS*1000;
+  $('arrival-line').textContent='Approaching the landing zone';
+  $('arrival-caption').classList.remove('hidden');
 }
 function updateAliens(dt, now) {
   if (state.launchDefense!=='charging' &&
@@ -1760,7 +1873,19 @@ function frame(now) {
     if (now >= state.marsAt) arriveMars();
   }
   else if (state.mode === 'arriving') {
-    camera.position.z -= dt * 2.2;
+    const t=Math.min(1,(now-state.arrivalStart)/(MARS_ARRIVAL_SECONDS*1000));
+    const ease=t*t*(3-2*t);
+    camera.position.set(7-ease*5,13-ease*8.5,57-ease*32);
+    camera.lookAt(-2-ease*3,3-ease*.8,-24+ease*10);
+    if(t>.62) $('arrival-line').textContent='Ares Colony is still alive';
+    else if(t>.3) $('arrival-line').textContent='Landing lights ahead';
+    if(marsDustPositions) {
+      for(let i=0;i<marsDustPositions.length;i+=3) {
+        marsDustPositions[i]+=dt*(.7+(i%9)*.08);
+        if(marsDustPositions[i]>55) marsDustPositions[i]=-55;
+      }
+      marsDust.geometry.attributes.position.needsUpdate=true;
+    }
     if (now >= state.marsAt) endGame(true);
   }
   if (state.noticeUntil && now >= state.noticeUntil) { ui.notice.classList.add('hidden'); state.noticeUntil = 0; }
@@ -1868,3 +1993,5 @@ window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+// A direct preview lets players inspect the ending without replaying the whole mission.
+if(new URLSearchParams(location.search).get('scene')==='mars') arriveMars();
