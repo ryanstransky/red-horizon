@@ -724,7 +724,7 @@ function makeAlienHitboxes(group) {
 const alienKinds = {
   stalker: {scale: 1, speed: 2.05, hp: 3, damage: 10, range: 1.7, tint: 0xdde9dc},
   runner: {scale: .76, speed: 3.35, hp: 2, damage: 7, range: 1.55, tint: 0xb9ffd9},
-  brute: {scale: 1.4, speed: 1.3, hp: 7, damage: 18, range: 2.2, tint: 0xffb4a0},
+  brute: {scale: 1.4, speed: 1.3, hp: 7, damage: 18, range: 3.2, tint: 0xffb4a0},
   spitter: {scale: .9, speed: 1.65, hp: 3, damage: 9, range: 2, tint: 0x96f3e5},
 };
 let alienTemplate = null;
@@ -805,11 +805,21 @@ function spawnAlien(x, z, kind = Math.random() < .18 ? 'brute' : Math.random() <
   group.traverse((part) => { if (part.isMesh) part.userData.alien = group; });
   const fallbackParts = [...group.children];
   const hitboxes = makeAlienHitboxes(group);
+  let telegraph=null;
+  if (kind==='brute' || kind==='runner') {
+    telegraph=new THREE.Mesh(new THREE.TorusGeometry(kind==='brute'?2.3:.88,.055,6,48),
+      new THREE.MeshBasicMaterial({color:kind==='brute'?0xff7258:0xa1ffca,
+        transparent:true,opacity:.4,depthWrite:false}));
+    telegraph.rotation.x=Math.PI/2; telegraph.position.y=.05;
+    telegraph.visible=false; group.add(telegraph);
+  }
   earth.add(group);
-  const alien = { group, arms, fallbackParts, hitboxes, detail: null,
+  const alien = { group, arms, fallbackParts, hitboxes, telegraph, detail: null,
     kind, hp: profile.hp, speed: profile.speed, damage: profile.damage, range: profile.range,
     attackAt: 0, windupUntil: 0, spitAt: 0, hitUntil: 0, staggerUntil: 0,
     staggerSide: 1, dyingAt: 0, phase: Math.random() * 7,
+    flankSide: Math.random()<.5?-1:1, dashReadyAt: 0, dashWindupUntil: 0,
+    dashUntil: 0, dashHit: false, dashVector: new THREE.Vector2(),
     heading: Math.random()*Math.PI*2, velocity: new THREE.Vector2() };
   aliens.push(alien);
   attachDetailedAlien(alien);
@@ -1148,28 +1158,55 @@ function updateAliens(dt, now) {
     const p = a.group.position;
     const dx = camera.position.x - p.x, dz = camera.position.z - p.z;
     const dist = Math.hypot(dx, dz);
+    if (a.kind==='runner') {
+      if (a.dashWindupUntil && now>=a.dashWindupUntil) {
+        a.dashWindupUntil=0; a.dashUntil=now+520; a.dashHit=false;
+      }
+      if (!a.dashWindupUntil && now>=a.dashReadyAt && dist>3.5 && dist<11) {
+        a.dashWindupUntil=now+460;
+        a.dashReadyAt=now+3900;
+        a.dashVector.set(dx/dist,dz/dist);
+        if (dist<9) sound('warning');
+      }
+    }
     const desired = new THREE.Vector2();
-    if (dist < 48 && !a.windupUntil && !a.spitAt && (a.kind==='spitter' || dist > a.range*.78)) {
-      const approach = a.kind==='spitter' && dist < 8 ? -1 : 1;
-      if (a.kind!=='spitter' || dist > 10 || dist < 8) desired.set(dx/dist*approach,dz/dist*approach);
+    if (a.dashUntil>now) desired.copy(a.dashVector).multiplyScalar(9);
+    else if (dist < 48 && !a.windupUntil && !a.spitAt && !a.dashWindupUntil &&
+      (a.kind==='spitter' || dist > a.range*.78)) {
+      if (a.kind==='spitter') {
+        const radial=dist<9?-1:dist>15?1:0;
+        desired.set(dx/dist*radial-dz/dist*a.flankSide*.9,
+          dz/dist*radial+dx/dist*a.flankSide*.9);
+      } else if (a.kind==='runner' && dist<16) {
+        desired.set(dx/dist*.65-dz/dist*a.flankSide*.75,
+          dz/dist*.65+dx/dist*a.flankSide*.75);
+      } else desired.set(dx/dist,dz/dist);
       for (const other of aliens) if (other!==a && !other.dyingAt) {
         const sx=p.x-other.group.position.x, sz=p.z-other.group.position.z;
         const gap=Math.hypot(sx,sz);
         if (gap>.01 && gap<2.3) desired.add(new THREE.Vector2(sx,sz)
           .multiplyScalar((2.3-gap)/(gap*2.3)));
       }
-      if (a.kind==='runner') {
-        const weave=Math.sin(now*.0018+a.phase)*.18;
-        desired.add(new THREE.Vector2(-dz/dist,dx/dist).multiplyScalar(weave));
-      }
       desired.normalize().multiplyScalar(a.speed);
     }
-    a.velocity.lerp(desired,Math.min(1,dt*(a.kind==='brute'?2:3.5)));
+    a.velocity.lerp(desired,Math.min(1,dt*(a.dashUntil>now?16:a.kind==='brute'?2:3.5)));
     const nx=p.x+a.velocity.x*dt, nz=p.z+a.velocity.y*dt;
     if (canStand(nx,nz,.45)) {p.x=nx;p.z=nz;}
     else if (canStand(nx,p.z,.45)) {p.x=nx;a.velocity.y=0;}
     else if (canStand(p.x,nz,.45)) {p.z=nz;a.velocity.x=0;}
     else a.velocity.set(0,0);
+    if (a.dashUntil>now && !a.dashHit &&
+      Math.hypot(camera.position.x-p.x,camera.position.z-p.z)<1.25) {
+      a.dashHit=true; a.dashUntil=0;
+      if (now>state.invulnerableUntil) {
+        state.health=Math.max(0,state.health-a.damage);
+        state.invulnerableUntil=now+450;
+        ui.damage.style.opacity=.85;
+        setTimeout(() => ui.damage.style.opacity=0,180);
+        sound('damage'); updateHud();
+        if (state.health<=0) endGame(false);
+      }
+    }
     const targetHeading=Math.atan2(camera.position.x-p.x,camera.position.z-p.z);
     const headingDelta=Math.atan2(Math.sin(targetHeading-a.heading),Math.cos(targetHeading-a.heading));
     a.heading+=THREE.MathUtils.clamp(headingDelta,-dt*3.3,dt*3.3);
@@ -1177,7 +1214,16 @@ function updateAliens(dt, now) {
     a.group.rotation.z=Math.max(0,(a.staggerUntil-now)/240)*a.staggerSide*.21;
     const stride = Math.sin(now * .011 * a.speed + a.phase);
     a.group.position.y = Math.abs(stride) * .022;
-    a.group.scale.setScalar(alienKinds[a.kind].scale * (now<a.hitUntil?1.1:1));
+    a.group.scale.setScalar(alienKinds[a.kind].scale *
+      (now<a.hitUntil?1.1:a.dashWindupUntil?1+.06*Math.sin(now*.03):1));
+    if (a.telegraph) {
+      const charging=a.kind==='brute'?a.windupUntil>now:a.dashWindupUntil>now;
+      a.telegraph.visible=charging;
+      if (charging) {
+        a.telegraph.material.opacity=.45+.3*Math.sin(now*.025);
+        a.telegraph.rotation.z+=dt*1.8;
+      }
+    }
     a.arms[0].rotation.x = stride * .34 - (a.windupUntil ? .6 : 0);
     a.arms[1].rotation.x = -stride * .34 - (a.windupUntil ? .6 : 0);
     if (a.detail) {
@@ -1195,9 +1241,10 @@ function updateAliens(dt, now) {
       for (const {material,emissive} of a.materials) {
         material.emissive.copy(emissive);
         if (now < a.hitUntil) material.emissive.setHex(0xff3520);
-        else if (a.spitAt) material.emissive.setHex(0x42e9c9);
+        else if (a.spitAt || a.dashWindupUntil) material.emissive.setHex(0x42e9c9);
         else if (a.windupUntil) material.emissive.setHex(0xff4f18);
-        material.emissiveIntensity = a.spitAt || a.windupUntil ? .7 : now<a.hitUntil ? .8 : 1;
+        material.emissiveIntensity = a.spitAt || a.windupUntil || a.dashWindupUntil
+          ? .7 : now<a.hitUntil ? .8 : 1;
       }
     }
     if (a.kind==='spitter') {
@@ -1212,13 +1259,14 @@ function updateAliens(dt, now) {
       }
       continue;
     }
-    if (dist < a.range && !a.windupUntil && now >= a.attackAt) {
-      a.windupUntil = now + (a.kind==='runner'?350:550);
+    if (dist < a.range && !a.windupUntil && !a.dashWindupUntil &&
+      a.dashUntil<=now && now >= a.attackAt) {
+      a.windupUntil = now + (a.kind==='brute'?1050:a.kind==='runner'?350:550);
       if (dist < 9) sound('warning');
     }
     if (a.windupUntil && now >= a.windupUntil) {
       a.windupUntil = 0;
-      a.attackAt = now + (a.kind==='brute'?1750:1200);
+      a.attackAt = now + (a.kind==='brute'?2500:1200);
       if (dist < a.range+.25 && now > state.invulnerableUntil) {
         state.health = Math.max(0,state.health-a.damage);
         state.invulnerableUntil = now + 450;
